@@ -74,6 +74,11 @@ export function hashOpeningPayload(walletId: string, playerId: string, initialBa
   );
 }
 
+/** Hash of a whole queue message payload (inbox): canonical JSON, so key order never matters. */
+export function hashMessagePayload(payload: unknown): string {
+  return sha256Hex(canonicalJson(payload));
+}
+
 function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }

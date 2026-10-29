@@ -1,6 +1,8 @@
 import type { MikroORM } from '@mikro-orm/postgresql';
+import type { FaultInjector } from '../../application/ports/fault-injector';
 import type { TransactionScope, UnitOfWork } from '../../application/ports/persistence';
 import type { Clock } from '../../application/ports/system';
+import { NoopFaultInjector } from '../system/fault-injectors';
 import { translateDatabaseError } from './database-errors';
 import { createTransactionScope } from './repositories';
 
@@ -20,6 +22,7 @@ export class MikroOrmUnitOfWork implements UnitOfWork {
     private readonly orm: MikroORM,
     private readonly clock: Clock,
     private readonly options: UnitOfWorkOptions,
+    private readonly faults: FaultInjector = new NoopFaultInjector(),
   ) {}
 
   async run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T> {
@@ -27,7 +30,9 @@ export class MikroOrmUnitOfWork implements UnitOfWork {
       return await this.orm.em.fork().transactional(async (em) => {
         await em.execute(`SET LOCAL lock_timeout = '${this.options.lockTimeoutMs}ms'`);
         await em.execute(`SET LOCAL statement_timeout = '${this.options.statementTimeoutMs}ms'`);
-        return work(createTransactionScope(em, this.clock));
+        const result = await work(createTransactionScope(em, this.clock));
+        this.faults.hit('before-commit');
+        return result;
       });
     } catch (error) {
       throw translateDatabaseError(error);

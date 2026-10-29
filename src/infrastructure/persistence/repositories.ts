@@ -17,6 +17,7 @@ import type {
   LedgerPage,
   LedgerRepository,
   OutboxRepository,
+  PendingReferenceCandidate,
   ReconciliationReader,
   ReconciliationSnapshot,
   TransactionScope,
@@ -41,6 +42,7 @@ import {
   inboxToDomain,
   ledgerEntryToDomain,
   ledgerEntryToRecord,
+  outboxToDomain,
   outboxToRecord,
   transactionOutcomeColumns,
   transactionToDomain,
@@ -168,6 +170,34 @@ export class MikroOrmWagerTransactionRepository implements WagerTransactionRepos
     });
     return count > 0;
   }
+
+  async lockForUpdate(id: string): Promise<WagerTransaction | undefined> {
+    const record = await this.em.findOne(
+      WagerTransactionRecord,
+      { id },
+      { ...fresh, lockMode: LockMode.PESSIMISTIC_WRITE },
+    );
+    return record ? transactionToDomain(record) : undefined;
+  }
+
+  async wakeUpPendingReferencing(
+    walletId: string,
+    providerId: string,
+    externalTransactionId: string,
+    now: Date,
+  ): Promise<number> {
+    return this.em.nativeUpdate(
+      WagerTransactionRecord,
+      {
+        walletId,
+        providerId,
+        referenceExternalTransactionId: externalTransactionId,
+        status: WagerTransactionStatus.PendingReference,
+        nextAttemptAt: { $gt: now },
+      },
+      { nextAttemptAt: now, updatedAt: now },
+    );
+  }
 }
 
 export class MikroOrmLedgerRepository implements LedgerRepository {
@@ -185,6 +215,33 @@ export class MikroOrmOutboxRepository implements OutboxRepository {
     if (messages.length > 0) {
       await this.em.insertMany(OutboxMessageRecord, messages.map(outboxToRecord));
     }
+  }
+
+  async claimDue(now: Date, limit: number): Promise<OutboxMessage[]> {
+    const records = await this.em.find(
+      OutboxMessageRecord,
+      { publishedAt: null, nextAttemptAt: { $lte: now } },
+      {
+        ...fresh,
+        orderBy: { occurredAt: 'asc', id: 'asc' },
+        limit,
+        lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE, // FOR UPDATE SKIP LOCKED
+      },
+    );
+    return records.map(outboxToDomain);
+  }
+
+  async update(message: OutboxMessage): Promise<void> {
+    await this.em.nativeUpdate(
+      OutboxMessageRecord,
+      { id: message.id },
+      {
+        attempts: message.attempts,
+        nextAttemptAt: message.nextAttemptAt ?? null,
+        publishedAt: message.publishedAt ?? null,
+        lastError: message.lastError ?? null,
+      },
+    );
   }
 }
 
@@ -254,6 +311,17 @@ export class MikroOrmWalletReader implements WalletReader {
 
 export class MikroOrmWagerTransactionReader implements WagerTransactionReader {
   constructor(private readonly em: EntityManager) {}
+
+  async findDuePendingReferences(now: Date, limit: number): Promise<PendingReferenceCandidate[]> {
+    const records = await this.em
+      .fork()
+      .find(
+        WagerTransactionRecord,
+        { status: WagerTransactionStatus.PendingReference, nextAttemptAt: { $lte: now } },
+        { ...fresh, orderBy: { nextAttemptAt: 'asc', id: 'asc' }, limit },
+      );
+    return records.map((record) => ({ transactionId: record.id, walletId: record.walletId }));
+  }
 
   async findById(id: string): Promise<WagerTransaction | undefined> {
     const record = await this.em.fork().findOne(WagerTransactionRecord, { id }, fresh);

@@ -66,6 +66,15 @@ export class ExternalTransactionIdConflictError extends ApplicationError {
   }
 }
 
+/** A messageId already consumed with a different payload: a producer bug, not a redelivery (I-10). */
+export class InboxPayloadMismatchError extends ApplicationError {
+  readonly code = 'INBOX_PAYLOAD_MISMATCH';
+
+  constructor(consumerName: string, messageId: string) {
+    super(`Message ${messageId} was already consumed by ${consumerName} with another payload`);
+  }
+}
+
 /** The target wallet does not exist; nothing is persisted (interpretation I-04). */
 export class WalletNotFoundError extends ApplicationError {
   readonly code = FailureCode.WalletNotFound;

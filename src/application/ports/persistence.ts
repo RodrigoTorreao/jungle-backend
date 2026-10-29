@@ -34,6 +34,19 @@ export interface WagerTransactionRepository {
   ): Promise<WagerTransaction | undefined>;
   /** Whether a PROCESSED REFUND or ROLLBACK already points at this transaction (I-01). */
   hasProcessedReversal(referenceTransactionId: string): Promise<boolean>;
+  /** `SELECT … FOR UPDATE` on one transaction. Call only while holding its wallet lock. */
+  lockForUpdate(id: string): Promise<WagerTransaction | undefined>;
+  /**
+   * "Nudge": the referenced transaction just reached a final outcome, so every transaction of
+   * the same wallet waiting for it becomes due now instead of at its backoff time.
+   * @returns how many pending transactions were woken up
+   */
+  wakeUpPendingReferencing(
+    walletId: string,
+    providerId: string,
+    externalTransactionId: string,
+    now: Date,
+  ): Promise<number>;
 }
 
 export interface LedgerRepository {
@@ -43,6 +56,18 @@ export interface LedgerRepository {
 
 export interface OutboxRepository {
   enqueue(messages: readonly OutboxMessage[]): Promise<void>;
+  /**
+   * Due, unpublished messages, oldest first, locked with `FOR UPDATE SKIP LOCKED`: concurrent
+   * publishers never claim the same row, and a crashed publisher's rows unlock with its connection.
+   */
+  claimDue(now: Date, limit: number): Promise<OutboxMessage[]>;
+  /** Persists publication or retry scheduling. */
+  update(message: OutboxMessage): Promise<void>;
+}
+
+export interface PendingReferenceCandidate {
+  readonly transactionId: string;
+  readonly walletId: string;
 }
 
 export interface InboxRepository {
@@ -87,6 +112,11 @@ export interface WalletReader {
 }
 
 export interface WagerTransactionReader {
+  /**
+   * PENDING_REFERENCE transactions whose next attempt is due, earliest first. Read without
+   * locks: the worker re-checks each one under its wallet lock before acting.
+   */
+  findDuePendingReferences(now: Date, limit: number): Promise<PendingReferenceCandidate[]>;
   findById(id: string): Promise<WagerTransaction | undefined>;
   findByExternalId(
     providerId: string,

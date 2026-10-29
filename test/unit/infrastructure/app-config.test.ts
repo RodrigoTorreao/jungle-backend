@@ -41,6 +41,11 @@ describe('loadConfig', () => {
     ['unknown role', { ...minimal, APP_ROLES: 'api,cron' }],
     ['empty role list', { ...minimal, APP_ROLES: ' , ' }],
     ['non-numeric port', { ...minimal, PORT: 'eighty' }],
+    ['an unknown fault point', { ...minimal, FAULT_POINTS: 'nowhere' }],
+    [
+      'fault points armed in production',
+      { ...minimal, NODE_ENV: 'production', FAULT_POINTS: 'before-commit' },
+    ],
     ['an auth mode without an adapter yet', { ...minimal, AUTH_MODE: 'keycloak' }],
     ['non-FIFO input queue', { ...minimal, SQS_WAGER_TRANSACTIONS_QUEUE: 'wager-transactions' }],
   ])('rejects %s', (_case, env) => {

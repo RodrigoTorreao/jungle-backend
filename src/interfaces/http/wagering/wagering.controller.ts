@@ -1,32 +1,12 @@
 import { Body, Controller, Get, Headers, Inject, Param, Post, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { z } from 'zod';
 import { ProcessWagerTransactionUseCase } from '../../../application/use-cases/process-wager-transaction';
 import { GetWagerTransactionQuery } from '../../../application/use-cases/wager-transaction-queries';
 import type { WagerResult, WagerTransactionView } from '../../../application/views';
-import {
-  WagerTransactionKind,
-  WagerTransactionStatus,
-} from '../../../domain/wagering/wager-transaction-kind';
+import { WagerTransactionStatus } from '../../../domain/wagering/wager-transaction-kind';
+import { identifier, WagerSubmissionBody } from '../../contracts/wager-submission';
 import { type AuthenticatedRequest, principalOf } from '../auth/auth.guard';
-import { correlationIdOf, MoneyBody, parseRequest, UuidParam } from '../request';
-
-const identifier = (max: number) => z.string().min(1).max(max);
-
-/** HTTP contract of a submission (Desafio §9). OPENING parses here and is refused by the domain. */
-export const WagerSubmissionBody = z
-  .object({
-    providerId: identifier(128),
-    externalTransactionId: identifier(256),
-    playerId: z.uuid(),
-    walletId: z.uuid(),
-    roundId: identifier(256),
-    gameId: identifier(256),
-    kind: z.enum(WagerTransactionKind),
-    money: MoneyBody,
-    referenceExternalTransactionId: identifier(256).optional(),
-  })
-  .strict();
+import { correlationIdOf, parseRequest, UuidParam } from '../request';
 
 const IdempotencyKeyHeader = identifier(256);
 

@@ -6,6 +6,7 @@ import {
   Module,
   type OnApplicationShutdown,
 } from '@nestjs/common';
+import { FAULT_INJECTOR, type FaultInjector } from '../../application/ports/fault-injector';
 import {
   RECONCILIATION_READER,
   UNIT_OF_WORK,
@@ -14,6 +15,7 @@ import {
 } from '../../application/ports/persistence';
 import { CLOCK, type Clock, ID_GENERATOR } from '../../application/ports/system';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { ArmedFaultInjector, NoopFaultInjector } from '../system/fault-injectors';
 import { SystemClock, UuidV7Generator } from '../system/system-adapters';
 import { createOrmOptions } from './mikro-orm.config';
 import { MikroOrmUnitOfWork } from './mikro-orm-unit-of-work';
@@ -44,13 +46,26 @@ export class DatabaseModule implements OnApplicationShutdown {
         { provide: CLOCK, useClass: SystemClock },
         { provide: ID_GENERATOR, useClass: UuidV7Generator },
         {
+          provide: FAULT_INJECTOR,
+          inject: [APP_CONFIG],
+          useFactory: (config: AppConfig): FaultInjector =>
+            config.faults.points.length === 0
+              ? new NoopFaultInjector()
+              : new ArmedFaultInjector(config.faults.points, config.faults.mode),
+        },
+        {
           provide: UNIT_OF_WORK,
-          inject: [MikroORM, CLOCK, APP_CONFIG],
-          useFactory: (orm: MikroORM, clock: Clock, config: AppConfig) =>
-            new MikroOrmUnitOfWork(orm, clock, {
-              lockTimeoutMs: config.database.lockTimeoutMs,
-              statementTimeoutMs: config.database.statementTimeoutMs,
-            }),
+          inject: [MikroORM, CLOCK, APP_CONFIG, FAULT_INJECTOR],
+          useFactory: (orm: MikroORM, clock: Clock, config: AppConfig, faults: FaultInjector) =>
+            new MikroOrmUnitOfWork(
+              orm,
+              clock,
+              {
+                lockTimeoutMs: config.database.lockTimeoutMs,
+                statementTimeoutMs: config.database.statementTimeoutMs,
+              },
+              faults,
+            ),
         },
         {
           provide: WALLET_READER,
@@ -72,6 +87,7 @@ export class DatabaseModule implements OnApplicationShutdown {
         MikroORM,
         CLOCK,
         ID_GENERATOR,
+        FAULT_INJECTOR,
         UNIT_OF_WORK,
         WALLET_READER,
         WAGER_TRANSACTION_READER,

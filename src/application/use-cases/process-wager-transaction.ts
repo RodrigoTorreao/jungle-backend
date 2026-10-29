@@ -1,10 +1,5 @@
-import {
-  WagerTransactionPendingReference,
-  WagerTransactionProcessed,
-  WagerTransactionRejected,
-  WalletBalanceChanged,
-} from '../../domain/messaging/events';
-import type { EventContext, IntegrationEvent } from '../../domain/messaging/integration-event';
+import { InboxMessage } from '../../domain/messaging/inbox-message';
+import type { IntegrationEvent } from '../../domain/messaging/integration-event';
 import { OutboxMessage } from '../../domain/messaging/outbox-message';
 import { Money, type MoneyProps } from '../../domain/money/money';
 import { InvariantViolationError } from '../../domain/shared/domain-error';
@@ -18,6 +13,7 @@ import type { Wallet } from '../../domain/wallet/wallet';
 import {
   ExternalTransactionIdConflictError,
   IdempotencyKeyConflictError,
+  InboxPayloadMismatchError,
   WalletNotFoundError,
 } from '../errors';
 import type { Principal } from '../ports/identity';
@@ -30,6 +26,7 @@ import {
   type TransientRetryPolicy,
   withTransientRetry,
 } from '../services/transient-retry';
+import { eventsForOutcome } from '../services/wager-events';
 import type { WagerResult } from '../views';
 
 /** Business fields of a submission — identical for HTTP and SQS. */
@@ -53,14 +50,28 @@ export interface ProcessWagerCommand {
   readonly correlationId: string;
   /** What caused this processing: the Idempotency-Key (HTTP) or the messageId (SQS). */
   readonly causationId: string;
+  /** Present when the submission arrived as a queue message (Desafio §10). */
+  readonly inbox?: InboxContext | undefined;
+}
+
+export interface InboxContext {
+  readonly consumerName: string;
+  /** Producer-assigned id in the message body — stable across redeliveries and re-sends. */
+  readonly messageId: string;
+  /** Hash of the whole message payload, to tell a redelivery from a reused messageId. */
+  readonly payloadHash: string;
+  readonly receivedAt: Date;
 }
 
 /**
  * The one use case behind `POST /wagering/transactions` and the SQS consumer (Desafio §10).
  *
- * Inside a single SQL transaction (ARCHITECTURE §8.1):
- *   lock wallet → idempotency lookup (replay or conflict) → resolve reference →
- *   WagerPolicy → persist transaction, ledger entry, wallet, outbox events → COMMIT.
+ * Inside a single SQL transaction (ARCHITECTURE §8.1, §8.2):
+ *   [inbox record] → lock wallet → idempotency lookup (replay or conflict) → resolve
+ *   reference → WagerPolicy → persist transaction, ledger entry, wallet, outbox events →
+ *   wake up transactions waiting for this one → COMMIT.
+ * The inbox row commits together with the effects, so a redelivered message finds it and
+ * resolves as a replay; a concurrent duplicate blocks on the inbox key until the first commits.
  * The wallet row lock serializes every writer of that wallet; READ COMMITTED makes each
  * lookup after the lock see what concurrent writers committed. Transient failures (lock
  * timeout, deadlock, duplicate-insert race) re-run the whole transaction a bounded number of
@@ -92,6 +103,10 @@ export class ProcessWagerTransactionUseCase {
     payloadHash: string,
   ): Promise<WagerResult> {
     const { submission } = command;
+    if (command.inbox !== undefined) {
+      // Lock order: inbox → wallet → transactions (ARCHITECTURE §6).
+      await this.receiveInbox(scope, command.inbox);
+    }
     const wallet = await scope.wallets.lockForUpdate(submission.walletId);
 
     const existing = await scope.transactions.findByIdempotencyKey(
@@ -147,12 +162,37 @@ export class ProcessWagerTransactionUseCase {
       await scope.ledger.append(outcome.ledgerEntry);
       await scope.wallets.update(wallet, expectedVersion);
     }
+    if (transaction.isTerminal()) {
+      await scope.transactions.wakeUpPendingReferencing(
+        wallet.id,
+        transaction.providerId,
+        transaction.externalTransactionId,
+        now,
+      );
+    }
     await scope.outbox.enqueue(
       this.eventsFor(transaction, wallet, outcome, command, now).map((event) =>
         OutboxMessage.enqueue(event),
       ),
     );
     return resultOf(transaction, false);
+  }
+
+  /**
+   * Records the message in the inbox. A duplicate (redelivery, or a concurrent copy that just
+   * committed) falls through to the idempotency lookup and becomes a replay; the same messageId
+   * with another payload is refused.
+   */
+  private async receiveInbox(scope: TransactionScope, context: InboxContext): Promise<void> {
+    const message = InboxMessage.receive(context);
+    message.markProcessed(this.clock.now());
+    if (await scope.inbox.tryReceive(message)) {
+      return;
+    }
+    const existing = await scope.inbox.find(context.consumerName, context.messageId);
+    if (existing !== undefined && !existing.matchesPayload(context.payloadHash)) {
+      throw new InboxPayloadMismatchError(context.consumerName, context.messageId);
+    }
   }
 
   private buildTransaction(
@@ -185,25 +225,12 @@ export class ProcessWagerTransactionUseCase {
     command: ProcessWagerCommand,
     now: Date,
   ): IntegrationEvent<unknown>[] {
-    const context = (): EventContext => ({
+    return eventsForOutcome(transaction, wallet, outcome, () => ({
       eventId: this.ids.next(),
       correlationId: command.correlationId,
       causationId: command.causationId,
       occurredAt: now,
-    });
-    switch (outcome.status) {
-      case WagerTransactionStatus.Processed:
-        return [
-          WagerTransactionProcessed.from(transaction, context()),
-          ...(outcome.ledgerEntry === undefined
-            ? []
-            : [WalletBalanceChanged.from(wallet, outcome.ledgerEntry, context())]),
-        ];
-      case WagerTransactionStatus.Rejected:
-        return [WagerTransactionRejected.from(transaction, context())];
-      case WagerTransactionStatus.PendingReference:
-        return [WagerTransactionPendingReference.from(transaction, context())];
-    }
+    }));
   }
 }
 

@@ -29,7 +29,6 @@ export function correlationIdOf(request: IncomingMessage & { id?: unknown }): st
   return typeof request.id === 'string' && request.id.length > 0 ? request.id : Bun.randomUUIDv7();
 }
 
-/** Money as it travels on the wire. The exact format is enforced by Money.from (INVALID_MONEY). */
-export const MoneyBody = z.object({ amount: z.string(), currency: z.string() }).strict();
+export { MoneyBody } from '../contracts/wager-submission';
 
 export const UuidParam = z.uuid();

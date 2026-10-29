@@ -22,6 +22,7 @@
     "test:concurrency": "bun test --preload ./test/support/integration-preload.ts ./test/concurrency --pass-with-no-tests"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1159.0",
     "@mikro-orm/core": "^7.2.5",
     "@mikro-orm/migrations": "^7.2.5",
     "@mikro-orm/postgresql": "^7.2.5",

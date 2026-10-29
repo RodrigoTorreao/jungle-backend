@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FAULT_POINTS, type FaultPoint } from '../../application/ports/fault-injector';
 
 export const APP_ROLES = [
   'api',
@@ -24,6 +25,16 @@ const appRolesSchema = z
   )
   .pipe(z.array(z.enum(APP_ROLES)).min(1));
 
+const faultPointsSchema = z
+  .string()
+  .transform((raw) =>
+    raw
+      .split(',')
+      .map((point) => point.trim())
+      .filter((point) => point.length > 0),
+  )
+  .pipe(z.array(z.enum(FAULT_POINTS)));
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(0).max(65535).default(3000),
@@ -39,9 +50,23 @@ const envSchema = z.object({
   SQS_WAGER_TRANSACTIONS_QUEUE: z.string().endsWith('.fifo').default('wager-transactions.fifo'),
   SQS_WAGER_TRANSACTIONS_DLQ: z.string().endsWith('.fifo').default('wager-transactions-dlq.fifo'),
   SQS_EVENTS_QUEUE: z.string().endsWith('.fifo').default('wagering-events.fifo'),
+  /** Inbox consumer name: dedup scope of (consumerName, messageId). */
+  SQS_CONSUMER_NAME: z.string().min(1).max(128).default('wager-transactions'),
+  SQS_WAIT_TIME_SECONDS: z.coerce.number().int().min(0).max(20).default(20),
+  SQS_MAX_MESSAGES: z.coerce.number().int().min(1).max(10).default(10),
+  /** Visibility backoff of transient failures: base * 2^(receiveCount-1), capped. */
+  SQS_RETRY_BASE_SECONDS: z.coerce.number().int().min(0).default(2),
+  SQS_RETRY_MAX_SECONDS: z.coerce.number().int().min(0).max(43_200).default(60),
+  OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(500),
+  OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
+  PENDING_REFERENCE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1_000),
+  PENDING_REFERENCE_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
   SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(20_000),
   /** Only `disabled` exists until the IdP adapter lands (ARCHITECTURE §11). */
   AUTH_MODE: z.enum(['disabled']).default('disabled'),
+  /** Test-only crash injection (refused in production). */
+  FAULT_POINTS: faultPointsSchema.default([]),
+  FAULT_MODE: z.enum(['throw', 'kill']).default('throw'),
 });
 
 export interface AppConfig {
@@ -64,10 +89,27 @@ export interface AppConfig {
     readonly wagerTransactionsQueue: string;
     readonly wagerTransactionsDlq: string;
     readonly eventsQueue: string;
+    readonly consumerName: string;
+    readonly waitTimeSeconds: number;
+    readonly maxMessages: number;
+    readonly retryBaseSeconds: number;
+    readonly retryMaxSeconds: number;
+  };
+  readonly outbox: {
+    readonly pollIntervalMs: number;
+    readonly batchSize: number;
+  };
+  readonly pendingReferences: {
+    readonly pollIntervalMs: number;
+    readonly batchSize: number;
   };
   readonly shutdownGraceMs: number;
   readonly auth: {
     readonly mode: 'disabled';
+  };
+  readonly faults: {
+    readonly points: readonly FaultPoint[];
+    readonly mode: 'throw' | 'kill';
   };
 }
 
@@ -85,6 +127,9 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     throw new InvalidConfigError(z.prettifyError(parsed.error));
   }
   const e = parsed.data;
+  if (e.NODE_ENV === 'production' && e.FAULT_POINTS.length > 0) {
+    throw new InvalidConfigError('FAULT_POINTS cannot be armed in production');
+  }
   return {
     env: e.NODE_ENV,
     port: e.PORT,
@@ -102,8 +147,19 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
       wagerTransactionsQueue: e.SQS_WAGER_TRANSACTIONS_QUEUE,
       wagerTransactionsDlq: e.SQS_WAGER_TRANSACTIONS_DLQ,
       eventsQueue: e.SQS_EVENTS_QUEUE,
+      consumerName: e.SQS_CONSUMER_NAME,
+      waitTimeSeconds: e.SQS_WAIT_TIME_SECONDS,
+      maxMessages: e.SQS_MAX_MESSAGES,
+      retryBaseSeconds: e.SQS_RETRY_BASE_SECONDS,
+      retryMaxSeconds: e.SQS_RETRY_MAX_SECONDS,
+    },
+    outbox: { pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS, batchSize: e.OUTBOX_BATCH_SIZE },
+    pendingReferences: {
+      pollIntervalMs: e.PENDING_REFERENCE_POLL_INTERVAL_MS,
+      batchSize: e.PENDING_REFERENCE_BATCH_SIZE,
     },
     shutdownGraceMs: e.SHUTDOWN_GRACE_MS,
     auth: { mode: e.AUTH_MODE },
+    faults: { points: e.FAULT_POINTS, mode: e.FAULT_MODE },
   };
 }
