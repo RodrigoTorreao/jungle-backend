@@ -39,5 +39,51 @@ services:
       timeout: 5s
       retries: 40
 
+  # --- The service itself: `docker compose --profile app up -d --build` ------------------------
+
+  migrate:
+    profiles: [app]
+    build: .
+    command: ["bun", "scripts/migrate.ts", "up"]
+    environment:
+      MIGRATION_DATABASE_URL: postgres://wallet_owner:wallet_owner@postgres:5432/wagering
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    profiles: [app]
+    build: .
+    deploy:
+      replicas: 3
+    environment: &app-env
+      NODE_ENV: production
+      LOG_LEVEL: info
+      APP_ROLES: all
+      DATABASE_URL: postgres://wallet_app:wallet_app@postgres:5432/wagering
+      DATABASE_POOL_MAX: "10"
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SHUTDOWN_GRACE_MS: "20000"
+    # Longer than SHUTDOWN_GRACE_MS: SIGTERM drains in-flight work before Docker's SIGKILL.
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+
+  lb:
+    profiles: [app]
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+
 volumes:
   postgres-data:

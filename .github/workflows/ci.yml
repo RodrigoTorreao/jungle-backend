@@ -30,7 +30,7 @@ jobs:
   integration:
     name: Integration and concurrency tests (PostgreSQL + LocalStack)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -46,7 +46,33 @@ jobs:
           bun run migration:down --all
           bun run migration:up
       - run: bun run test:integration
+      # Multi-process, SIGKILL and SIGTERM tests: POSIX signals, so Linux only.
       - run: bun run test:concurrency
       - name: Container logs
         if: failure()
         run: docker compose logs --no-color
+
+  cluster:
+    name: Docker image and 3-replica cluster behind nginx
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and start the cluster
+        run: docker compose --profile app up -d --build --wait
+      - name: Smoke test through the load balancer
+        run: |
+          curl -fsS http://localhost:8080/health/ready
+          wallet=$(curl -fsS -X POST http://localhost:8080/wallets -H 'content-type: application/json' \
+            -d '{"playerId":"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1","initialBalance":{"amount":"100.00","currency":"BRL"}}')
+          wallet_id=$(echo "$wallet" | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          curl -fsS -X POST http://localhost:8080/wagering/transactions \
+            -H 'content-type: application/json' -H 'idempotency-key: provider-a:ci-1' \
+            -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"ci-1\",\"playerId\":\"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1\",\"walletId\":\"$wallet_id\",\"roundId\":\"r\",\"gameId\":\"g\",\"kind\":\"BET\",\"money\":{\"amount\":\"25.00\",\"currency\":\"BRL\"}}"
+          curl -fsS http://localhost:8080/wallets/$wallet_id | grep -q '"amount":"75.00"'
+          test "$(docker compose ps app --format '{{.Health}}' | grep -c healthy)" = 3
+      - name: Graceful stop of every replica
+        run: docker compose --profile app stop app
+      - name: Container logs
+        if: failure()
+        run: docker compose --profile app logs --no-color
