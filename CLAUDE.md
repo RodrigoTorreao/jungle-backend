@@ -72,6 +72,8 @@ infrastructure ┘   (implementa as ports de application)
 - Entidades e value objects: construtor `private`/`protected` + factories estáticas (`create`, `open`, `from`, `rehydrate`). `rehydrate` **não** revalida transições.
 - Estado encapsulado (`private _campo` + getter); transições explícitas; estados terminais lançam `InvalidTransactionStateError`.
 - Persistência: `EntitySchema` + mappers em `src/infrastructure/persistence`; o domínio não conhece o ORM.
+- Escritas financeiras são explícitas (`em.insert`, `em.nativeUpdate … WHERE version = ?`) dentro de `UnitOfWork.run`, na ordem: wallet/transação → ledger → outbox. Não use `persist()`/`flush()` para essas tabelas; leituras com `disableIdentityMap` (ADR-013).
+- Toda mudança de saldo passa por `TransactionScope`: `wallets.lockForUpdate` → domínio → `transactions.insert/update` → `ledger.append` → `wallets.update(wallet, expectedVersion)` → `outbox.enqueue`.
 - Use cases em `src/application/use-cases`; HTTP e SQS chamam **o mesmo** `ProcessWagerTransaction`.
 - Ordem de locks numa transação: inbox → wallet → wager_transactions → inserts. Não inverta.
 

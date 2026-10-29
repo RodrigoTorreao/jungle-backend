@@ -69,3 +69,18 @@ Formato:
 **Contexto:** a regra que proíbe `Number`/`Math`/`parseFloat` em `domain`/`application` também bloqueou usos legítimos: checar que `version` é inteiro e a sugestão do próprio Biome de usar `Math.min`.
 **Decisão:** um único ponto sancionado (`isNonNegativeInteger` em `domain/shared/guards.ts`, com `biome-ignore` justificado) e `useMathMinMax` desligado onde `Math` é proibido.
 **Consequência:** a regra continua ampla; cada exceção é explícita e localizada. **Ref:** `biome.json`.
+
+### DL-012 · 2026-10-29 · "Saldo == ledger" precisava valer nos dois sentidos
+**Contexto:** o plano (ADR-007) previa um trigger diferido em `wallets`. Ao escrever os testes de violação, ficou claro que isso garante "saldo ⇒ lançamento", mas uma `BET` `PROCESSED` sem lançamento (e sem mexer no saldo) passaria.
+**Decisão:** mais dois constraint triggers diferidos: lançamento exige transação `PROCESSED` de mesmo valor, e transação `PROCESSED` que move dinheiro exige seu lançamento; e FKs compostas prendendo o lançamento à wallet, à moeda e à transação certas.
+**Consequência:** a invariante "toda alteração de saldo tem lançamento e vice-versa" (§6.2) agora é inteira do schema. **Ref:** ARCHITECTURE §5.1, `schema-constraints.test.ts`.
+
+### DL-013 · 2026-10-29 · Snapshot de replay precisa da própria moeda
+**Contexto:** o replay devolve o saldo observado no processamento original; ao mapear, notei que uma rejeição `CURRENCY_MISMATCH` (operação em USD numa wallet BRL) gravaria o saldo da wallet rotulado com a moeda da operação.
+**Decisão:** coluna `result_balance_currency`, com CHECK de par (valor e moeda juntos). Corrigido na própria migration, ainda não publicada; o banco local de desenvolvimento foi recriado porque a versão antiga já estava aplicada.
+**Consequência:** regra prática: migration só é editada enquanto não foi commitada; depois disso, sempre uma nova. **Ref:** `repositories.test.ts` (snapshot keeps its own currency).
+
+### DL-014 · 2026-10-29 · MikroORM sem dirty-checking nas escritas financeiras
+**Contexto:** o desafio destaca Unit of Work e Identity Map do MikroORM; mas o `flush()` decide sozinho a ordem dos statements, e os triggers/FKs compostas exigem transação antes do lançamento, além do `UPDATE … WHERE version = ?` com contagem de linhas.
+**Decisão:** o ORM gerencia transação, metadata, consultas e locks; escritas são `em.insert`/`em.nativeUpdate` explícitas, em ordem fixa, e leituras usam `disableIdentityMap`.
+**Consequência:** nenhum efeito colateral implícito no commit; o custo é escrever os updates à mão. **Ref:** ADR-013.

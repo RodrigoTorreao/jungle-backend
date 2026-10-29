@@ -69,17 +69,17 @@ flowchart LR
 **Objetivo:** o banco é a última linha de defesa — todas as garantias da seção 6 do desafio aplicadas no schema.
 
 - [x] **S2-01** Roles `wallet_owner` (migrations) e `wallet_app` (runtime, grants mínimos) via init do Postgres [D-09] — antecipado no Sprint 0 (init do Compose + migration `bootstrap`)
-- [ ] **S2-02** Migration `wallets` (`UNIQUE (player_id, currency)`, `CHECK balance >= 0`, `CHECK version >= 1`, formato da moeda)
-- [ ] **S2-03** Migration `wager_transactions` (unicidades de idempotência e external id, CHECKs por kind/status, índice parcial "uma reversão por referência", índices do worker, FK de referência)
-- [ ] **S2-04** Migration `wallet_ledger_entries` (UNIQUE por transação, `UNIQUE (wallet_id, wallet_version)`, CHECK aritmético, trigger de imutabilidade, trigger de encadeamento, `REVOKE UPDATE, DELETE, TRUNCATE`)
-- [ ] **S2-05** Constraint trigger **diferido** `wallet.balance == último balance_after` validado no COMMIT [D-02]
-- [ ] **S2-06** Trigger que impede transição a partir de estado terminal em `wager_transactions`
-- [ ] **S2-07** Migrations `inbox_messages` e `outbox_messages`
-- [ ] **S2-08** `EntitySchema`s + mappers persistência ↔ domínio (`rehydrate`), mapeamento de `Money` (`numeric` ⇄ string ⇄ bigint)
-- [ ] **S2-09** Portas e repositórios (`WalletRepository.lockForUpdate`, `WagerTransactionRepository`, `LedgerRepository`, `OutboxRepository`, `InboxRepository`) e `UnitOfWork` sobre `em.transactional`
-- [ ] **S2-10** Use case `CreateWallet` + `POST /wallets` (OPENING + CREDIT + `WalletOpened`/`WalletBalanceChanged` na outbox) [RF-H01]
-- [ ] **S2-11** `GET /wallets/:id` e `GET /wallets/:id/ledger` com cursor keyset opaco [RF-H02, RF-H03]
-- [ ] **S2-12** Testes de integração de constraints: tentar violar cada garantia direto via SQL e ver o banco recusar; `up → down → up` [T-I01]
+- [x] **S2-02** Migration `wallets` (`UNIQUE (player_id, currency)`, `CHECK balance >= 0`, `CHECK version >= 1`, formato da moeda)
+- [x] **S2-03** Migration `wager_transactions` (unicidades de idempotência e external id, CHECKs por kind/status, índice parcial "uma reversão por referência", índices do worker, FK de referência)
+- [x] **S2-04** Migration `wallet_ledger_entries` (UNIQUE por transação, `UNIQUE (wallet_id, wallet_version)`, CHECK aritmético, trigger de imutabilidade, trigger de encadeamento, `REVOKE UPDATE, DELETE, TRUNCATE`)
+- [x] **S2-05** Constraint trigger **diferido** `wallet.balance == último balance_after` validado no COMMIT [D-02]
+- [x] **S2-06** Trigger que impede transição a partir de estado terminal em `wager_transactions`
+- [x] **S2-07** Migrations `inbox_messages` e `outbox_messages`
+- [x] **S2-08** `EntitySchema`s + mappers persistência ↔ domínio (`rehydrate`), mapeamento de `Money` (`numeric` ⇄ string ⇄ bigint)
+- [x] **S2-09** Portas e repositórios (`WalletRepository.lockForUpdate`, `WagerTransactionRepository`, `LedgerRepository`, `OutboxRepository`, `InboxRepository`) e `UnitOfWork` sobre `em.transactional`
+- [x] **S2-10** Use case `CreateWallet` + `POST /wallets` (OPENING + CREDIT + `WalletOpened`/`WalletBalanceChanged` na outbox) [RF-H01]
+- [x] **S2-11** `GET /wallets/:id` e `GET /wallets/:id/ledger` com cursor keyset opaco [RF-H02, RF-H03]
+- [x] **S2-12** Testes de integração de constraints: tentar violar cada garantia direto via SQL e ver o banco recusar; `up → down → up` [T-I01]
 
 **Critério de saída:** nenhuma garantia de unicidade/imutabilidade/não-negatividade depende só de código de aplicação.
 

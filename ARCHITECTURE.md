@@ -339,6 +339,7 @@ erDiagram
         text status "CHECK enum"
         text failure_code "obrigatorio se REJECTED ou FAILED"
         numeric result_balance_amount "snapshot p replay"
+        char result_balance_currency "moeda do snapshot (da wallet)"
         int reference_attempts
         timestamptz next_attempt_at
         timestamptz created_at
@@ -393,11 +394,18 @@ erDiagram
 | ≤ 1 lançamento por transação por wallet | `UNIQUE (transaction_id, wallet_id)` |
 | Aritmética do lançamento | `CHECK ((direction='CREDIT' AND balance_after = balance_before + amount) OR (direction='DEBIT' AND balance_after = balance_before - amount))` |
 | Ledger imutável | trigger `BEFORE UPDATE OR DELETE` → `RAISE EXCEPTION`; `REVOKE UPDATE, DELETE, TRUNCATE` do role `wallet_app` |
-| Ledger encadeado | trigger `BEFORE INSERT`: `balance_before` = `balance_after` do lançamento anterior da wallet (ou 0) e `wallet_version` maior que o anterior; `UNIQUE (wallet_id, wallet_version)` |
-| **Saldo == ledger** | `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` em `wallets`: no COMMIT, relê a wallet e exige `balance_amount`/`version` iguais ao `balance_after`/`wallet_version` do último lançamento (ou saldo 0 sem lançamentos) |
+| Ledger encadeado | trigger `BEFORE INSERT`: `balance_before` = `balance_after` do lançamento anterior da wallet (ou 0) e `wallet_version` = anterior + 1 (sem buracos); `UNIQUE (wallet_id, wallet_version)` |
+| **Saldo == ledger** | `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` em `wallets` **e** no ledger: no COMMIT, relê a wallet e exige `balance_amount`/`version` iguais ao `balance_after`/`wallet_version` do último lançamento (sem lançamentos: saldo 0 e versão 1) |
+| Lançamento ⇔ transação aplicada | dois constraint triggers diferidos: todo lançamento aponta para uma transação `PROCESSED` de mesmo valor (nunca `LOSS`/`REJECTED`), e toda transação `PROCESSED` que move dinheiro tem seu lançamento |
+| Lançamento na wallet e moeda certas | FKs compostas `(wallet_id, currency) → wallets (id, currency)` e `(transaction_id, wallet_id) → wager_transactions (id, wallet_id)` |
+| Coerência status × colunas | `CHECK`s: `failure_code` ⇔ `REJECTED/FAILED`; `processed_at` ⇔ terminal; `next_attempt_at` ⇔ `PENDING_REFERENCE`; snapshot de saldo obrigatório fora de `PENDING/FAILED`; reversão `PROCESSED` com referência resolvida; `BET`/`OPENING` sem referência; `OPENING` só do provider `internal` |
+| Histórico nunca apagado | triggers `BEFORE DELETE`/`TRUNCATE` em `wager_transactions` e `inbox_messages`; o role da app não tem `DELETE` em nenhuma tabela |
 | Inbox única | `PRIMARY KEY (consumer_name, message_id)` |
+| Outbox só avança | trigger: evento (tipo, versão, payload) imutável, `attempts` não decresce, mensagem publicada congelada; `CHECK` publicada ⇔ sem `next_attempt_at` |
 
 Roles: `wallet_owner` é dono das tabelas e roda migrations; `wallet_app` (runtime) tem apenas `SELECT, INSERT` no ledger e `SELECT, INSERT, UPDATE` nas demais. Triggers protegem inclusive contra o owner.
+
+Cada linha desta tabela tem um teste em `test/integration/persistence/schema-constraints.test.ts` que tenta violá-la direto via SQL e exige o SQLSTATE e o nome da constraint. Remover qualquer uma das garantias faz o teste correspondente falhar (verificado com mutações durante o Sprint 2).
 
 ### 5.2 Índices operacionais
 
@@ -490,7 +498,7 @@ flowchart TD
     U -- "não" --> OK["commit"]
 ```
 
-O replay usa o snapshot persistido (`status`, `failure_code`, `result_balance_amount`), por isso devolve o saldo observado no momento do processamento original.
+O replay usa o snapshot persistido (`status`, `failure_code`, `result_balance_amount`/`result_balance_currency`), por isso devolve o saldo observado no momento do processamento original.
 
 ---
 
@@ -614,7 +622,8 @@ Backoff: `1s, 2s, 4s … teto 5 min`, no máximo **10 tentativas ou TTL de 15 mi
 
 ### 8.5 Criação de wallet e reconciliação
 
-- `POST /wallets`: numa transação, `INSERT wallet (v1)`; se `initialBalance > 0`, `INSERT wager_transactions (OPENING, PROCESSED)` + `INSERT ledger (CREDIT, v1)` + outbox `WalletOpened` e `WalletBalanceChanged`. Duplicata → `23505` em `uq_wallet_player_currency` → 409 `WALLET_ALREADY_EXISTS`.
+- `POST /wallets`: numa transação, `INSERT wallet (v1)`; se `initialBalance > 0`, `INSERT wager_transactions (OPENING, PROCESSED)` + `INSERT ledger (CREDIT, v1)` + outbox `WalletOpened` e `WalletBalanceChanged`. Resposta 201. Duplicata → `23505` em `uq_wallets_player_currency` → 409 `WALLET_ALREADY_EXISTS`.
+- `GET /wallets/:id/ledger`: mais recentes primeiro, keyset por `wallet_version`. O cursor é opaco (`base64url` de `{walletId, version}`): estável porque o ledger é imutável e a versão é monotônica, e recusado (400) se usado em outra wallet. `limit` entre 1 e 200, padrão 50.
 - `POST /wallets/:id/reconciliation`: transação `REPEATABLE READ READ ONLY` (snapshot consistente, sem bloquear escritores): `calculated = Σ CREDIT − Σ DEBIT`; compara com `balance_amount` e com o `balance_after` do último lançamento. Divergência → log `error` com `walletId`, métrica `wallet_reconciliation_divergences_total`, `consistent: false`. Nada é corrigido.
 
 ---
@@ -730,6 +739,7 @@ Todo teste de integração e concorrência termina com `assertLedgerConsistency(
 | 010 | Infra de teste via **Compose** + banco por arquivo de teste clonado de um template migrado | testcontainers; truncar tabelas entre testes | menos atrito com Bun; mesma infra no CI; clonar template é rápido e não exige `DELETE` (que o role da app nem tem) |
 | 011 | CLI de migration próprio (`scripts/migrate.ts`) sobre `orm.migrator`, com `migrationsList` explícito | CLI do MikroORM | roda direto no Bun sem ts-node/descoberta de arquivos; migrations são SQL escrito à mão, sem geração por diff |
 | 012 | Dois roles: `wallet_owner` (migrations) e `wallet_app` (runtime) | um único usuário | o runtime não consegue `DELETE`, `TRUNCATE` nem DDL; reforça ledger append-only (R-05) além dos triggers |
+| 013 | MikroORM para transação, conexão, metadata (`EntitySchema`), consultas e locks; **escritas financeiras explícitas** (`em.insert`, `em.nativeUpdate … WHERE version = ?`) em ordem fixa; leituras com `disableIdentityMap` | Unit of Work com dirty-checking e `flush()` | a ordem dos statements importa (triggers, FKs compostas, ordem de locks) e o update de saldo precisa do guard de versão com contagem de linhas afetadas; o identity map serviria uma linha relida depois de uma escrita explícita como cópia velha |
 
 ### 13.1 Resultados do spike do Sprint 0
 
