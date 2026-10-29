@@ -141,6 +141,7 @@ describe('T-C02 — 100.00 and two simultaneous bets of 80.00', () => {
           principal: { kind: 'trusted' },
           correlationId: 'tc02-pools',
           causationId: externalTransactionId,
+          source: 'http',
         });
       };
 

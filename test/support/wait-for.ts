@@ -11,14 +11,14 @@ export interface WaitForOptions {
 export async function waitFor<T>(
   probe: () => T | Promise<T>,
   { timeoutMs = 10_000, intervalMs = 50, description = 'condition' }: WaitForOptions = {},
-): Promise<NonNullable<T>> {
+): Promise<Exclude<T, false | null | undefined>> {
   const deadline = performance.now() + timeoutMs;
   let lastError: unknown;
   while (performance.now() < deadline) {
     try {
       const value = await probe();
       if (value) {
-        return value as NonNullable<T>;
+        return value as Exclude<T, false | null | undefined>;
       }
     } catch (error) {
       lastError = error;

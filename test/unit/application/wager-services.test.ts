@@ -6,7 +6,11 @@ import {
   ResourceNotFoundError,
   TransientInfrastructureError,
 } from '../../../src/application/errors';
-import type { AppLogger, Metrics } from '../../../src/application/ports/observability';
+import {
+  type AppLogger,
+  type Metrics,
+  noopMetrics,
+} from '../../../src/application/ports/observability';
 import type {
   ReconciliationReader,
   ReconciliationSnapshot,
@@ -102,6 +106,7 @@ describe('provider authorization', () => {
         principal: { kind: 'provider', providerId: 'provider-b' },
         correlationId: 'c',
         causationId: 'provider-a:tx-1',
+        source: 'http',
       }),
     ).rejects.toBeInstanceOf(ProviderMismatchError);
   });
@@ -129,6 +134,7 @@ describe('ReconcileWalletUseCase', () => {
       error: (context, message) => logged.push({ context, message }),
     };
     const metrics: Metrics = {
+      ...noopMetrics,
       reconciliationDivergence: () => {
         divergences += 1;
       },

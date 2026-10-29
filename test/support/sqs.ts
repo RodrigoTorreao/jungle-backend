@@ -1,5 +1,6 @@
 import {
   CreateQueueCommand,
+  DeleteMessageBatchCommand,
   DeleteQueueCommand,
   GetQueueAttributesCommand,
   type Message,
@@ -144,7 +145,10 @@ export async function sendMessage(
   );
 }
 
-/** Receives (and hides) everything currently available in a queue. */
+/**
+ * Consumes everything currently in a queue (receive + delete). Deleting matters for FIFO
+ * queues: a group with a message in flight delivers nothing else until it is deleted.
+ */
 export async function drain(client: SQSClient, queueUrl: string): Promise<Message[]> {
   const all: Message[] = [];
   for (;;) {
@@ -162,6 +166,15 @@ export async function drain(client: SQSClient, queueUrl: string): Promise<Messag
       return all;
     }
     all.push(...Messages);
+    await client.send(
+      new DeleteMessageBatchCommand({
+        QueueUrl: queueUrl,
+        Entries: Messages.map((message, index) => ({
+          Id: `m${index}`,
+          ReceiptHandle: message.ReceiptHandle,
+        })),
+      }),
+    );
   }
 }
 

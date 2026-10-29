@@ -82,6 +82,7 @@ function command(
     principal: { kind: 'trusted' },
     correlationId: 'corr-pending',
     causationId: externalTransactionId,
+    source: 'http',
   };
 }
 
