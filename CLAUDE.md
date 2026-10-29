@@ -112,6 +112,9 @@ infrastructure ┘   (implementa as ports de application)
 - Roles: `wallet_owner` (dono do schema, roda migrations) e `wallet_app` (runtime: `SELECT/INSERT/UPDATE`, sem `DELETE`/`TRUNCATE`/DDL). Criados em `docker/postgres/init`; grants em `Migration…_bootstrap`.
 - Migrations são SQL escrito à mão (`this.addSql`) registradas em `src/infrastructure/persistence/migrations/index.ts` — não use geração por diff do ORM.
 - Testes de mensageria criam filas próprias com `createTestQueues()` (`test/support/sqs.ts`) e as apagam no `afterAll`; nunca usem as filas fixas do Compose. Consumer e workers são montados direto (`buildConsumer`, `pollOnce()`, `runOnce()`) para ficarem determinísticos; `ManualClock` controla backoff e TTL.
+- Testes multi-processo (`test/support/cluster.ts`): `startInstance` sobe `bun src/main.ts` real numa porta livre e captura os logs JSON; `killInstance` é SIGKILL. `FAULT_MODE=kill` faz a instância se matar no ponto exato. Testes de `SIGTERM` usam `test.skipIf(win32)` e rodam no CI ou via `scripts/test-in-linux.sh`.
+- Quedas de dependência: `TcpProxy` (`test/support/tcp-proxy.ts`) na frente do Postgres ou do LocalStack; `stop()`/`start()` simulam a queda real.
+- `patches/kysely@0.29.6.patch` corrige um vazamento de conexão (ADR-014). Não remova; ao atualizar MikroORM/Kysely, reaplique com `bun patch` e rode `test/integration/resilience`.
 - Crash em teste: `new ArmedFaultInjector(['after-commit-before-ack'])` passado ao consumer/publisher ou `connectPersistence(db, { faults })` para `before-commit`. Em modo `throw` o `SimulatedCrashError` deixa o estado de um processo morto; o modo `kill` é para os testes multi-processo.
 - Cada arquivo de teste de integração chama `createTestDatabase()` (clone do template migrado) e `db.drop()` no `afterAll`. Use `db.appUrl` para o que a app faz e `db.ownerUrl` só para DDL/sondar constraints.
 

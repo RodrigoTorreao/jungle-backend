@@ -1,18 +1,18 @@
 # ARCHITECTURE — Distributed Wagering Processor
 
-> **Status:** v0.4. Sprints 0–4 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
+> **Status:** v0.5. Sprints 0–5 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
 
 | Seção | Implementado | Planejado |
 |---|---|---|
 | §4 Modelo de domínio | tudo (Money, Wallet, ledger, WagerTransaction, WagerPolicy, inbox/outbox, eventos) | — |
 | §5 Schema e garantias | tudo, com testes de violação via SQL | — |
-| §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE, retry de transitórios; cenário 100 vs 80+80 testado via HTTP e via pools independentes | ≥ 3 processos (Sprint 5) |
+| §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE, retry de transitórios; cenário 100 vs 80+80 via HTTP e via pools; 3 processos reais (T-C04) | — |
 | §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay, replay/conflito por HTTP e SQS, inbox `(consumerName, messageId)` na mesma transação, corrida de chave entre wallets | — |
 | §8 Fluxos | todos: submissão HTTP (§8.1), consumer SQS com DLQ e shutdown (§8.2), outbox publisher (§8.3), worker de pendências com nudge (§8.4), wallet e reconciliação (§8.5) | `SIGTERM` real em container (Sprint 5) |
-| §9 Contratos HTTP | todos os endpoints de negócio do desafio; mapeamento completo (200/201/202/400/401/403/404/409/422/500/503) | `/health/ready`, `/metrics` (Sprint 5) |
-| §10 Observabilidade | logs JSON com `correlationId`, campos sensíveis ocultos, `/health/live`; contador `wallet_reconciliation_divergences_total` (registry próprio) | `/metrics`, demais métricas, `/health/ready`, demais campos de contexto (Sprint 5) |
+| §9 Contratos HTTP | todos os endpoints do desafio, incluindo `/health/ready` e `/metrics`; mapeamento completo (200/201/202/400/401/403/404/409/422/500/503) | — |
+| §10 Observabilidade | logs JSON com contexto via `AsyncLocalStorage` (`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`), valores monetários ocultos; catálogo completo de métricas em `/metrics`; `/health/live` e `/health/ready` (503 no shutdown) | Grafana e OpenTelemetry (Sprint 6) |
 | §11 Autenticação | ponto de extensão (porta, guard global, `@Public()`, `AUTH_MODE=disabled`) | adaptador Keycloak (Sprint 6) |
-| §12 Testes | unidade, integração com PostgreSQL e LocalStack reais (filas próprias por arquivo), concorrência (T-C01..T-C03, T-C05..T-C07), `FaultInjector` em modo `throw` | ≥3 processos e `kill -9` real (Sprint 5); carga (Sprint 6) |
+| §12 Testes | unidade; integração com PostgreSQL e LocalStack reais; quedas de banco e SQS via proxy TCP; concorrência T-C01..T-C08 com processos reais, `SIGKILL` nos pontos de injeção e `SIGTERM` (Linux) | carga (Sprint 6) |
 > Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Enunciado: [Desafio.md](Desafio.md)
 > Como chegamos a cada decisão (achados, mudanças de rumo): [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
@@ -95,7 +95,8 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph compose["docker compose"]
-        LB["nginx :8080<br/>round-robin"]
+        LB["nginx :8080<br/>round-robin, retry em 502/503"]
+        MG["migrate<br/>(one-shot)"]
         A1["app-1<br/>APP_ROLES=all"]
         A2["app-2<br/>APP_ROLES=all"]
         A3["app-3<br/>APP_ROLES=all"]
@@ -106,13 +107,14 @@ flowchart TB
         GF["grafana<br/>profile: observability"]
     end
     LB --> A1 & A2 & A3
+    MG --> PG
     A1 & A2 & A3 --> PG
     A1 & A2 & A3 --> LS
     PR --> A1 & A2 & A3
     GF --> PR
 ```
 
-A mesma imagem roda todos os papéis; `APP_ROLES` (`api`, `consumer`, `outbox-publisher`, `pending-reference-worker`) permite separá-los. Três réplicas com todos os papéis é o cenário padrão dos testes multi-instância.
+A mesma imagem (`Dockerfile`) roda todos os papéis; `APP_ROLES` (`api`, `consumer`, `outbox-publisher`, `pending-reference-worker`) permite separá-los. `docker compose --profile app up -d --build` sobe `migrate` (roda as migrations e sai), 3 réplicas de `app` com todos os papéis e o `lb` (nginx). O nginx re-resolve o DNS do Docker a cada 5 s e repassa um POST para outra réplica em `502/503` ou erro de conexão, o que é seguro porque toda submissão é idempotente pela `Idempotency-Key`. `stop_grace_period: 30s` é maior que `SHUTDOWN_GRACE_MS` (20 s), então o `SIGTERM` drena antes do `SIGKILL` do Docker. Prometheus, Grafana e Keycloak entram nos profiles do Sprint 6.
 
 ---
 
@@ -698,6 +700,8 @@ Erros seguem `application/problem+json` (RFC 9457) com `code` e `retryable`. Rep
 
 **Logs** (pino, JSON): contexto via `AsyncLocalStorage` com `correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`, `kind`, `status`, `failureCode`. `redact` para `money`, `balance*`, `amount` e headers de autenticação. Payload completo nunca é logado.
 
+Implementação: um middleware Express (`correlationMiddleware`, registrado antes do pino-http) abre o contexto de cada requisição com o `x-correlation-id` recebido ou um UUIDv7 novo; o consumer abre um por mensagem e os workers um por ciclo. Os adaptadores enriquecem o contexto (`logContext.assign`) conforme aprendem `walletId`, `providerId` e `transactionId`, e um `mixin` do pino carimba os campos em toda linha, inclusive nos logs dos casos de uso. O teste multi-instância verifica os campos nas linhas reais e que nenhuma linha contém um valor monetário.
+
 **Métricas** (prom-client, `GET /metrics`):
 
 | Métrica | Tipo | Labels |
@@ -715,7 +719,9 @@ Erros seguem `application/problem+json` (RFC 9457) com `code` e `retryable`. Rep
 | `pending_reference_transactions` | gauge | — |
 | `wallet_reconciliation_divergences_total` | counter | — |
 
-**Health:** `/health/live` (processo responde) e `/health/ready` (`SELECT 1` + `GetQueueAttributes`; 503 durante shutdown). Ambos sem autenticação.
+**Health:** `/health/live` (processo responde) e `/health/ready` (`SELECT 1` + `GetQueueAttributes` em cada fila configurada, timeout de 2 s cada; 503 com `status: not-ready` e o detalhe de cada dependência, ou `status: shutting-down`). O estado de shutdown é marcado em `onModuleDestroy`, que o Nest executa antes de qualquer `beforeApplicationShutdown`; marcar no mesmo hook dos workers deixaria a instância "pronta" durante toda a drenagem (DL-021). Ambos sem autenticação, assim como `/metrics`.
+
+Origem das métricas: `ProcessWagerTransactionUseCase` (resultado, duração, replay, conflito, duplicata de inbox), `withTransientRetry` (retries e conflitos de lock, com o motivo vindo do SQLSTATE), consumer (DLQ), outbox relay (publicadas/falhas), worker (resultados com `source=worker`) e gauges calculados no scrape (backlog e idade da outbox, pendências, profundidade da DLQ).
 
 **Opcional:** Prometheus + Grafana no profile `observability`; OpenTelemetry se compatível com Bun.
 
@@ -778,6 +784,8 @@ Todo teste de integração ou concorrência que cria wallets ou move dinheiro te
 | 011 | CLI de migration próprio (`scripts/migrate.ts`) sobre `orm.migrator`, com `migrationsList` explícito | CLI do MikroORM | roda direto no Bun sem ts-node/descoberta de arquivos; migrations são SQL escrito à mão, sem geração por diff |
 | 012 | Dois roles: `wallet_owner` (migrations) e `wallet_app` (runtime) | um único usuário | o runtime não consegue `DELETE`, `TRUNCATE` nem DDL; reforça ledger append-only (R-05) além dos triggers |
 | 013 | MikroORM para transação, conexão, metadata (`EntitySchema`), consultas e locks; **escritas financeiras explícitas** (`em.insert`, `em.nativeUpdate … WHERE version = ?`) em ordem fixa; leituras com `disableIdentityMap` | Unit of Work com dirty-checking e `flush()` | a ordem dos statements importa (triggers, FKs compostas, ordem de locks) e o update de saldo precisa do guard de versão com contagem de linhas afetadas; o identity map serviria uma linha relida depois de uma escrita explícita como cópia velha |
+| 014 | Patch versionado (`patches/kysely@0.29.6.patch`, `bun patch`) na dependência transitiva Kysely: liberar a conexão quando o `BEGIN` falha | trocar de ORM; reconectar o pool periodicamente | sem o patch, cada transação cujo `BEGIN` encontra um socket morto vaza um slot do pool para sempre — após N quedas de rede a instância trava (DL-020). O patch tem um teste de regressão que falha sem ele |
+| 015 | Com `AWS_ENDPOINT_URL`, `useQueueUrlAsEndpoint: false` no client SQS | deixar o SDK seguir o host do `QueueUrl` | o LocalStack devolve URLs em `localhost.localstack.cloud:4566`; o SDK passaria a ignorar o endpoint configurado (DL-022) |
 
 ### 13.1 Resultados do spike do Sprint 0
 
@@ -830,16 +838,20 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 | Processo morre após COMMIT, antes do ack | reentrega → inbox duplicada → replay → ack | T-C05 (`wager-consumer.test.ts`) |
 | Processo morre após COMMIT, antes de publicar | outbox pendente → outra instância publica | `outbox-publisher.test.ts` |
 | Publisher morre após publicar, antes de marcar | republica com o mesmo `eventId` | `outbox-publisher.test.ts`; dois publishers: T-C06 |
-| PostgreSQL indisponível | 503 + `Retry-After`; consumer sem ack; readiness 503 | S5-05 |
-| SQS indisponível | HTTP continua; outbox acumula e drena; consumer em backoff | S5-05 |
+| PostgreSQL indisponível | 503 + `Retry-After`; consumer sem ack; readiness 503; o pool não vaza conexões (patch do Kysely) | `outages.test.ts` |
+| SQS indisponível | HTTP continua; outbox acumula com backoff e drena; readiness 503 | `outages.test.ts` |
 | Mesma mensagem em paralelo em N instâncias | `INSERT inbox` bloqueia no índice único até a primeira confirmar | T-C01, T-C04 |
 | Referência chega depois | `PENDING_REFERENCE` + nudge + worker; cadeias resolvem em ordem; vários workers sem duplicar | T-C07 (`pending-references.test.ts`, `workers-e2e.test.ts`) |
 | Lock timeout / deadlock | retry limitado → 503 / backoff na fila | T-C02 |
-| `SIGTERM` | drena HTTP, conclui ou devolve mensagens, encerra workers e pool | S5-08 |
+| `SIGTERM` | readiness 503 de imediato, conclui a mensagem em andamento, devolve as não iniciadas, encerra workers e pool | `graceful-shutdown.test.ts` (Linux) |
+| `kill -9` em qualquer instância, inclusive nos pontos de injeção | reinício sem duplicar efeito nem perder evento | T-C08 (`crash-recovery.test.ts`) |
+| 3 instâncias disputando as mesmas wallets | serialização por wallet entre processos | T-C04 (`multi-instance.test.ts`) |
 
 ---
 
 ## 16. Trade-offs e limitações
+
+- **Patch em dependência** (ADR-014): enquanto o Kysely não corrigir upstream, cada atualização do MikroORM/Kysely precisa reaplicar o patch; o teste de regressão denuncia se ele for perdido.
 
 - **Throughput por hot wallet** é limitado pela serialização no lock — escolha consciente: correção acima de paralelismo dentro da mesma wallet.
 - **Ordem de eventos** entre publishers concorrentes não é garantida; consumidores devem usar `walletVersion` e deduplicar por `eventId`.

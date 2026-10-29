@@ -109,3 +109,18 @@ Formato:
 **Contexto:** o critério de saída do Sprint 4 é "matar o processo em qualquer ponto não duplica efeito nem perde evento", mas sinais POSIX não são confiáveis no Windows e o multi-processo é do Sprint 5.
 **Decisão:** o `FaultInjector` em modo `throw` lança `SimulatedCrashError`, que consumer e publisher tratam como morte: nada de ack, nada de liberar visibilidade, nada de marcar a outbox. Isso reproduz exatamente o estado deixado por um `kill -9` (commit feito, mensagem em voo, linhas não marcadas). O modo `kill` (SIGKILL de verdade) fica pronto para os testes multi-processo.
 **Consequência:** os três pontos de injeção são testados de forma determinística em segundos. **Ref:** `wager-consumer.test.ts`, `outbox-publisher.test.ts`.
+
+### DL-020 · 2026-10-29 · Vazamento de conexão no Kysely achado pelo teste de queda do banco
+**Contexto:** o teste de PostgreSQL fora do ar passava, mas o `afterAll` travava no `orm.close()`.
+**Achado:** reproduzido isolado com `poolMax: 1`: depois de uma queda de rede, a próxima transação travava para sempre. O `BEGIN` de uma conexão cujo socket morreu ociosa falha em `ControlledTransactionBuilder.execute()` do Kysely (camada SQL do MikroORM 7), que nunca libera a conexão reservada; o `transactional` do MikroORM só faz rollback se o `begin` retornar. Cada queda vazava um slot: após N quedas a instância pararia de falar com o banco.
+**Decisão:** patch versionado (`bun patch kysely`) liberando a conexão quando o `BEGIN` falha, mais um teste de regressão que falha sem ele. Candidato a correção upstream. **Ref:** ADR-014, `outages.test.ts`.
+
+### DL-021 · 2026-10-29 · Readiness só funcionava no teste, não no SIGTERM real
+**Contexto:** o teste em processo da readiness chamava o hook diretamente e passava.
+**Achado:** com `SIGTERM` de verdade num container Linux, a readiness nunca ia para 503: o Nest executa `beforeApplicationShutdown` módulo por módulo, e o dos workers (que espera a mensagem em andamento) rodava antes do da readiness. O load balancer continuaria mandando tráfego durante toda a drenagem.
+**Decisão:** marcar o shutdown em `onModuleDestroy`, que roda para todos os módulos antes de qualquer `beforeApplicationShutdown`. Lição: comportamento de sinal só vale testado com sinal real (`graceful-shutdown.test.ts`). **Ref:** ARCHITECTURE §10.
+
+### DL-022 · 2026-10-29 · SDK do SQS ignorando o endpoint configurado
+**Contexto:** ao pôr um proxy TCP na frente do LocalStack para simular queda do SQS, as requisições não passavam pelo proxy.
+**Achado:** versões recentes do SDK mandam cada requisição para o host do `QueueUrl`, e o LocalStack devolve `localhost.localstack.cloud:4566` — o `AWS_ENDPOINT_URL` deixava de valer (e havia dependência de DNS público).
+**Decisão:** `useQueueUrlAsEndpoint: false` sempre que há endpoint explícito. **Ref:** ADR-015, `src/infrastructure/messaging/sqs.ts`.

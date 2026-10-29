@@ -124,14 +124,14 @@ flowchart LR
 
 **Objetivo:** provar correção com ≥ 3 instâncias e dar diagnóstico operacional.
 
-- [ ] **S5-01** Papéis por processo (`APP_ROLES=api,consumer,outbox-publisher,pending-reference-worker`) e Compose com 3 réplicas atrás de um load balancer (nginx)
-- [ ] **S5-02** Contexto de correlação (`AsyncLocalStorage`) propagado HTTP → use case → outbox → SQS; logs com `correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`; `redact` de valores [RNF-04]
-- [ ] **S5-03** Métricas Prometheus em `GET /metrics` (lista no ARCHITECTURE §10) [RNF-05, RF-H10]
-- [ ] **S5-04** `GET /health/ready` (PostgreSQL + SQS, e 503 durante shutdown) [RF-H08]
-- [ ] **S5-05** Resiliência: PostgreSQL fora → HTTP 503 + `Retry-After`, consumer não dá ack; SQS fora → outbox acumula e drena depois [RNF-03]
-- [ ] **S5-06** Teste com ≥ 3 processos (`Bun.spawn` ou réplicas do Compose) disputando as mesmas wallets por HTTP e SQS [T-C04]
-- [ ] **S5-07** Teste de reinício: `docker compose restart`/`kill -9` no meio da carga → consistência final comprovada [T-C08, T-I06]
-- [ ] **S5-08** Shutdown gracioso testado com `SIGTERM` real em container Linux [RNF-07]
+- [x] **S5-01** Papéis por processo (`APP_ROLES=api,consumer,outbox-publisher,pending-reference-worker`) e Compose com 3 réplicas atrás de um load balancer (nginx)
+- [x] **S5-02** Contexto de correlação (`AsyncLocalStorage`) propagado HTTP → use case → outbox → SQS; logs com `correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`; `redact` de valores [RNF-04]
+- [x] **S5-03** Métricas Prometheus em `GET /metrics` (lista no ARCHITECTURE §10) [RNF-05, RF-H10]
+- [x] **S5-04** `GET /health/ready` (PostgreSQL + SQS, e 503 durante shutdown) [RF-H08]
+- [x] **S5-05** Resiliência: PostgreSQL fora → HTTP 503 + `Retry-After`, consumer não dá ack; SQS fora → outbox acumula e drena depois [RNF-03]
+- [x] **S5-06** Teste com ≥ 3 processos (`Bun.spawn` ou réplicas do Compose) disputando as mesmas wallets por HTTP e SQS [T-C04]
+- [x] **S5-07** Teste de reinício: `docker compose restart`/`kill -9` no meio da carga → consistência final comprovada [T-C08, T-I06]
+- [x] **S5-08** Shutdown gracioso testado com `SIGTERM` real em container Linux [RNF-07]
 
 **Critério de saída:** todas as suítes obrigatórias (seção 13 do desafio) verdes.
 

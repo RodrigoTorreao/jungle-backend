@@ -7,7 +7,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 - Requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md)
 - Diário de decisões: [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
-> **Status:** Sprints 0–4 concluídos — domínio, schema com as garantias financeiras, API HTTP completa e mensageria: consumer SQS com inbox e DLQ, outbox publisher e worker de referências fora de ordem, tudo testado contra PostgreSQL e LocalStack reais. Sprint 5: múltiplas instâncias, métricas e readiness.
+> **Status:** Sprints 0–5 concluídos — domínio, schema com as garantias financeiras, API HTTP, mensageria (SQS, inbox, outbox, pendências), observabilidade (logs com contexto, `/metrics`, `/health/ready`) e correção comprovada com 3 processos reais, `kill -9` e `SIGTERM`. Sprint 6: diferenciais (carga, Grafana, Keycloak).
 
 ## Pré-requisitos
 
@@ -48,6 +48,23 @@ APP_ROLES=all bun run dev
 
 Variáveis de mensageria e workers estão em `.env.example` (`SQS_*`, `OUTBOX_*`, `PENDING_REFERENCE_*`).
 
+## Cluster local: 3 réplicas atrás de um load balancer
+
+```bash
+docker compose --profile app up -d --build --wait   # migrate + 3× app + nginx em :8080
+curl http://localhost:8080/health/ready
+curl http://localhost:8080/metrics
+docker compose --profile app stop app                # SIGTERM: drena e para cada réplica
+```
+
+Operação:
+
+| Endpoint | Para quê |
+|---|---|
+| `GET /health/live` | o processo responde |
+| `GET /health/ready` | PostgreSQL e filas alcançáveis; 503 durante o shutdown |
+| `GET /metrics` | métricas Prometheus (catálogo no ARCHITECTURE §10) |
+
 ## Comandos
 
 | Comando | O que faz |
@@ -66,6 +83,14 @@ Variáveis de mensageria e workers estão em `.env.example` (`SQS_*`, `OUTBOX_*`
 ### Como os testes isolam o banco
 
 O preload `test/support/integration-preload.ts` cria e migra um banco *template* uma vez por execução. Cada arquivo de teste clona esse template (`CREATE DATABASE … TEMPLATE`) e o descarta no fim, então os arquivos nunca compartilham estado. As suítes de integração e concorrência não devem rodar em paralelo entre si (compartilham o template).
+
+### Testes com sinais POSIX no Windows
+
+O teste de `SIGTERM` só roda em Linux (no Windows ele é pulado). Para rodá-lo, ou a suíte de concorrência inteira, num container Linux na rede do Compose:
+
+```bash
+wsl -d Ubuntu --cd . -- docker run --rm --network jungle-wagering_default -v "$PWD:/src:ro" oven/bun:1.4.4 sh /src/scripts/test-in-linux.sh ./test/concurrency
+```
 
 ## Windows com Docker no WSL2 (sem Docker Desktop)
 
