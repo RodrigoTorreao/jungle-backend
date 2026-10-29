@@ -98,7 +98,7 @@ infrastructure ┘   (implementa as ports de application)
 ## Ambiente (Windows)
 
 - Bun roda nativo no Windows (instalado via scoop). **Não há Docker Desktop**: o Docker Engine roda dentro do WSL (distro `Ubuntu`). Comandos de Compose: `wsl -d Ubuntu --cd <pasta do projeto> -- docker compose …`. As portas publicadas ficam acessíveis em `localhost` no Windows.
-- A distro WSL desliga quando ociosa e derruba os containers. Antes de rodar testes de integração, mantenha-a viva (`wsl -d Ubuntu -- sleep infinity` em background) e confirme com `docker compose ps`.
+- `%USERPROFILE%\.wslconfig` desliga o shutdown por ociosidade (`instanceIdleTimeout=-1`, `vmIdleTimeout=-1`), então os containers ficam de pé. Depois de um reboot ou `wsl --shutdown`, suba de novo o Compose e confirme com `docker compose ps`.
 - Não use `cd` solto no shell da ferramenta (muda o diretório da sessão); prefira caminhos absolutos ou `git -C`.
 - Testes que dependem de sinais POSIX (`SIGTERM`, `SIGKILL`) e de crash de processo devem rodar em container Linux, WSL2 ou CI — não confie no resultado deles rodando nativamente no Windows.
 

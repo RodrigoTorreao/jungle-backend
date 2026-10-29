@@ -52,7 +52,15 @@ O preload `test/support/integration-preload.ts` cria e migra um banco *template*
 ## Windows com Docker no WSL2 (sem Docker Desktop)
 
 - Rode o Compose de dentro do WSL: `wsl -d Ubuntu --cd <pasta-do-projeto> -- docker compose up -d --wait`. As portas `5432` e `4566` ficam acessíveis em `localhost` no Windows.
-- A distro WSL **desliga quando fica ociosa** e derruba os containers. Mantenha um terminal WSL aberto (ou `wsl -d Ubuntu -- sleep infinity` em segundo plano) enquanto desenvolve.
+- Por padrão, a distro WSL **desliga quando fica ociosa** e derruba os containers. Para evitar, crie `%USERPROFILE%\.wslconfig` com o conteúdo abaixo e rode `wsl --shutdown` uma vez:
+
+  ```ini
+  [general]
+  instanceIdleTimeout=-1
+
+  [wsl2]
+  vmIdleTimeout=-1
+  ```
 - Testes que dependem de sinais POSIX (`SIGTERM`, `SIGKILL`) devem rodar em Linux (WSL2, container ou CI).
 
 ## CI
