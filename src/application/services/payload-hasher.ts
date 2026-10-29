@@ -59,5 +59,21 @@ export function hashWagerPayload(payload: WagerPayload): string {
     money: Money.from(payload.money).toJSON(),
     referenceExternalTransactionId: payload.referenceExternalTransactionId,
   };
-  return createHash('sha256').update(canonicalJson(subset), 'utf8').digest('hex');
+  return sha256Hex(canonicalJson(subset));
+}
+
+/** Hash of the internal OPENING operation: identifies the wallet creation that produced it. */
+export function hashOpeningPayload(walletId: string, playerId: string, initialBalance: MoneyProps) {
+  return sha256Hex(
+    canonicalJson({
+      kind: 'OPENING',
+      walletId,
+      playerId,
+      money: Money.from(initialBalance).toJSON(),
+    }),
+  );
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
 }

@@ -2,11 +2,12 @@ import type { EntitySchema } from '@mikro-orm/core';
 import { Migrator } from '@mikro-orm/migrations';
 import { defineConfig, type Options } from '@mikro-orm/postgresql';
 import { migrationsList } from './migrations';
+import { persistenceSchemas } from './records';
 
 export const MIGRATIONS_TABLE = 'mikro_orm_migrations';
 
-/** Persistence-model schemas registered with the ORM. Grows as aggregates get mapped. */
-export const entitySchemas: EntitySchema[] = [];
+/** Persistence-model schemas registered with the ORM. */
+export const entitySchemas: EntitySchema[] = persistenceSchemas;
 
 interface OrmOptionsInput {
   readonly clientUrl: string;

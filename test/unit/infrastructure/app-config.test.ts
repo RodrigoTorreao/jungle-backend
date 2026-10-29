@@ -18,6 +18,8 @@ describe('loadConfig', () => {
       url: minimal.DATABASE_URL,
       migrationUrl: undefined,
       poolMax: 10,
+      lockTimeoutMs: 2_000,
+      statementTimeoutMs: 5_000,
     });
     expect(config.sqs.wagerTransactionsQueue).toBe('wager-transactions.fifo');
     expect(config.sqs.wagerTransactionsDlq).toBe('wager-transactions-dlq.fifo');

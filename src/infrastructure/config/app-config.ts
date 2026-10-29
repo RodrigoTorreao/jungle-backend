@@ -32,6 +32,8 @@ const envSchema = z.object({
   DATABASE_URL: postgresUrl,
   MIGRATION_DATABASE_URL: postgresUrl.optional(),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+  DATABASE_LOCK_TIMEOUT_MS: z.coerce.number().int().positive().default(2_000),
+  DATABASE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
   AWS_REGION: z.string().min(1).default('us-east-1'),
   AWS_ENDPOINT_URL: z.url().optional(),
   SQS_WAGER_TRANSACTIONS_QUEUE: z.string().endsWith('.fifo').default('wager-transactions.fifo'),
@@ -49,6 +51,8 @@ export interface AppConfig {
     readonly url: string;
     readonly migrationUrl: string | undefined;
     readonly poolMax: number;
+    readonly lockTimeoutMs: number;
+    readonly statementTimeoutMs: number;
   };
   readonly aws: {
     readonly region: string;
@@ -85,6 +89,8 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
       url: e.DATABASE_URL,
       migrationUrl: e.MIGRATION_DATABASE_URL,
       poolMax: e.DATABASE_POOL_MAX,
+      lockTimeoutMs: e.DATABASE_LOCK_TIMEOUT_MS,
+      statementTimeoutMs: e.DATABASE_STATEMENT_TIMEOUT_MS,
     },
     aws: { region: e.AWS_REGION, endpointUrl: e.AWS_ENDPOINT_URL },
     sqs: {
