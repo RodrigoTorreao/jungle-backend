@@ -1,6 +1,18 @@
 # ARCHITECTURE — Distributed Wagering Processor
 
-> **Status:** v0.1. Sprint 0 concluído; resultados do spike em §13.1.
+> **Status:** v0.2. Sprints 0–2 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
+
+| Seção | Implementado | Planejado |
+|---|---|---|
+| §4 Modelo de domínio | tudo (Money, Wallet, ledger, WagerTransaction, WagerPolicy, inbox/outbox, eventos) | — |
+| §5 Schema e garantias | tudo, com testes de violação via SQL | — |
+| §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE | retry de transitórios e cenário 100 vs 80+80 (Sprint 3) |
+| §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay | fluxo de replay/conflito no endpoint (Sprint 3) |
+| §8 Fluxos | criação de wallet (§8.5) | submissão HTTP e reconciliação (Sprint 3); SQS, outbox publisher e pendências (Sprint 4) |
+| §9 Contratos HTTP | `POST /wallets`, `GET /wallets/:id`, ledger paginado, problem+json (400/401/404/409/500/503) | 200/202/422 de `POST /wagering/transactions` e consultas de transação (Sprint 3) |
+| §10 Observabilidade | logs JSON com `correlationId`, campos sensíveis ocultos, `/health/live` | métricas, `/health/ready`, demais campos de contexto (Sprint 5) |
+| §11 Autenticação | ponto de extensão (porta, guard global, `@Public()`, `AUTH_MODE=disabled`) | adaptador Keycloak (Sprint 6) |
+| §12 Testes | unidade, integração com PostgreSQL real, corrida de criação de wallet | LocalStack nos testes e `FaultInjector` (Sprint 4); ≥3 instâncias (Sprint 5); carga (Sprint 6) |
 > Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Enunciado: [Desafio.md](Desafio.md)
 > Como chegamos a cada decisão (achados, mudanças de rumo): [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
@@ -250,7 +262,7 @@ classDiagram
 
 ### 4.2 `Wallet`
 
-- `debit`/`credit` recebem `transactionId`, `money` e `at`, validam moeda e não-negatividade, atualizam `_balance`, incrementam `_version` e **retornam o `WalletLedgerEntry`** correspondente. Assim, saldo e lançamento nascem juntos e não há como mudar saldo sem lançamento.
+- `debit`/`credit` recebem `ledgerEntryId`, `transactionId`, `money` e `at`, validam moeda e não-negatividade, atualizam `_balance`, incrementam `_version` e **retornam o `WalletLedgerEntry`** correspondente. Assim, saldo e lançamento nascem juntos e não há como mudar saldo sem lançamento.
 - `version = 1` após `open` (inclusive com `OPENING`); `+1` a cada alteração de saldo; `LOSS`, `REJECTED` e `PENDING_REFERENCE` não incrementam.
 - `walletVersion` do lançamento = `version` da wallet após a alteração. É a chave de ordenação e o cursor do ledger.
 
@@ -344,12 +356,13 @@ erDiagram
         timestamptz next_attempt_at
         timestamptz created_at
         timestamptz processed_at
+        timestamptz updated_at
     }
     WALLET_LEDGER_ENTRIES {
         uuid id PK
         uuid wallet_id FK "UNIQUE com wallet_version"
         uuid transaction_id FK "UNIQUE com wallet_id"
-        bigint wallet_version
+        int wallet_version
         text direction "DEBIT ou CREDIT"
         numeric amount "CHECK maior que 0"
         char currency
@@ -430,9 +443,10 @@ SELECT * FROM wallets WHERE id = $1 FOR UPDATE;           -- serializa só esta 
 SELECT * FROM wager_transactions
  WHERE provider_id = $2 AND idempotency_key = $3;         -- já enxerga commits concorrentes
 -- ... domínio decide ...
-UPDATE wallets SET balance_amount = $4, version = version + 1, updated_at = now()
- WHERE id = $1 AND version = $5;                          -- 1 linha ou erro
-INSERT INTO wager_transactions ...;  INSERT INTO wallet_ledger_entries ...;
+INSERT INTO wager_transactions ...;                       -- antes do lançamento (FK composta)
+INSERT INTO wallet_ledger_entries ...;                    -- trigger confere o encadeamento
+UPDATE wallets SET balance_amount = $4, version = $6, updated_at = $7
+ WHERE id = $1 AND version = $5;                          -- 1 linha ou ConcurrencyConflictError
 INSERT INTO outbox_messages ...;
 COMMIT;                                                   -- triggers diferidos validam saldo == ledger
 ```
@@ -706,6 +720,18 @@ Vale 0 pontos — implementada com timebox no Sprint 6, com ponto de extensão d
 - **Fila:** canal interno confiável, mas o `providerId` da mensagem passa pelas mesmas validações de domínio (referência do mesmo provider etc.).
 - `AUTH_MODE=disabled` troca o guard por um no-op (testes e desenvolvimento). Health e `/metrics` ficam abertos.
 
+**Ponto de extensão já no código** (o que o §2 do desafio exige mesmo sem IdP):
+
+| Peça | Arquivo | Hoje | Sprint 6 |
+|---|---|---|---|
+| `ProviderIdentityPort` + `Principal` (`trusted` / `provider` / `backoffice`) | `src/application/ports/identity.ts` | contrato | inalterado |
+| Adaptador de identidade | `src/infrastructure/auth/` | `TrustedProviderIdentity` (todo chamador é `trusted`) | adaptador Keycloak (JWKS) |
+| `AuthGuard` global + `@Public()` | `src/interfaces/http/auth/auth.guard.ts` | resolve o principal e o anexa à requisição; health é `@Public()` | inalterado |
+| `AUTH_MODE` | config | só `disabled` é aceito | `keycloak` |
+| `401 UNAUTHENTICATED` | filtro de problemas | mapeado | inalterado |
+
+A autorização (provider do token × `providerId` do payload, rotas só de backoffice) fica nos casos de uso, que recebem o `Principal`.
+
 ---
 
 ## 12. Estratégia de testes
@@ -717,7 +743,7 @@ Vale 0 pontos — implementada com timebox no Sprint 6, com ponto de extensão d
 | `test:concurrency` | idem + processos reais | `Promise.all` com pools independentes, `Bun.spawn` de ≥ 3 instâncias, `FaultInjector` para crash em pontos exatos, `waitFor` com timeout em vez de `sleep` |
 | `test:load` | Compose com 3 réplicas | ver `docs/LOAD_TEST.md` |
 
-Todo teste de integração e concorrência termina com `assertLedgerConsistency(walletIds)`: `wallet.balance == Σ CREDIT − Σ DEBIT`, encadeamento íntegro e outbox sem perda (`eventos esperados ⊆ outbox`).
+Todo teste de integração ou concorrência que cria wallets ou move dinheiro termina com `assertLedgerConsistency(databaseUrl, walletIds?)` (`test/support/ledger-consistency.ts`), que verifica, com aritmética em `numeric` no próprio PostgreSQL: `wallet.balance == Σ CREDIT − Σ DEBIT`, último lançamento igual a saldo e versão, e sequência de versões sem buracos. Testes que não tocam em wallets (health, migrations, spike do ORM) não o chamam. A verificação de outbox sem perda (eventos esperados presentes) entra com o publisher, no Sprint 4.
 
 **Crash injection:** `FaultInjector` é uma porta; em produção é no-op. Em teste, `FAULT_POINTS=after-commit-before-ack` faz o processo se matar com `SIGKILL` naquele ponto. Testes de sinal rodam em Linux (container/CI/WSL2).
 

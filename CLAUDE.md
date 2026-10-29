@@ -74,6 +74,7 @@ infrastructure ┘   (implementa as ports de application)
 - Persistência: `EntitySchema` + mappers em `src/infrastructure/persistence`; o domínio não conhece o ORM.
 - Escritas financeiras são explícitas (`em.insert`, `em.nativeUpdate … WHERE version = ?`) dentro de `UnitOfWork.run`, na ordem: wallet/transação → ledger → outbox. Não use `persist()`/`flush()` para essas tabelas; leituras com `disableIdentityMap` (ADR-013).
 - Toda mudança de saldo passa por `TransactionScope`: `wallets.lockForUpdate` → domínio → `transactions.insert/update` → `ledger.append` → `wallets.update(wallet, expectedVersion)` → `outbox.enqueue`.
+- Autenticação: todo endpoint passa pelo `AuthGuard` global (porta `ProviderIdentityPort`); rotas abertas usam `@Public()`. Hoje `AUTH_MODE=disabled` (todo chamador é `trusted`).
 - Use cases em `src/application/use-cases`; HTTP e SQS chamam **o mesmo** `ProcessWagerTransaction`.
 - Ordem de locks numa transação: inbox → wallet → wager_transactions → inserts. Não inverta.
 
@@ -95,7 +96,7 @@ infrastructure ┘   (implementa as ports de application)
 - `bun test`. Unidade em `test/unit`, integração em `test/integration`, concorrência em `test/concurrency`, helpers em `test/support`.
 - Integração e concorrência usam **PostgreSQL e LocalStack reais**. Não mocke banco nem SQS nessas suítes.
 - Determinismo: nada de `sleep` fixo; use `waitFor(cond, timeout)`. Paralelismo real com `Promise.all` em conexões independentes ou processos (`Bun.spawn`).
-- Todo teste de integração/concorrência termina com `assertLedgerConsistency`.
+- Todo teste de integração/concorrência que cria wallets ou move dinheiro termina com `assertLedgerConsistency`. Testes que não tocam em wallets (health, migrations) não precisam.
 - Crash em pontos exatos via `FaultInjector` (`FAULT_POINTS=...`), nunca via timing.
 - Um bug corrigido ganha um teste que falhava antes.
 

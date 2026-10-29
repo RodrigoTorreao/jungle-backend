@@ -21,7 +21,7 @@ flowchart LR
 - `bun run typecheck`, `bun run lint` e as suítes afetadas passando.
 - Nenhum `number` para dinheiro; nenhum import de NestJS/MikroORM dentro de `src/domain`.
 - Garantias de banco cobertas por teste de integração (não só por teste de unidade).
-- Testes de concorrência terminam com `assertLedgerConsistency`.
+- Testes de integração e concorrência que movem dinheiro terminam com `assertLedgerConsistency`.
 - Logs sem payload financeiro completo.
 - Documentação atualizada quando a decisão/contrato mudar.
 
@@ -143,7 +143,7 @@ flowchart LR
 
 - [ ] **S6-01** Teste de carga `bun run test:load` (cenários: wallets uniformes, hot wallet, ingestão SQS) + `docs/LOAD_TEST.md` com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos e outbox lag [D-01]
 - [ ] **S6-02** Prometheus + Grafana provisionados (profile `observability`) com dashboard [D-03]
-- [ ] **S6-03** Keycloak no Compose com realm importado; `JwtAuthGuard` (JWKS via `jose`), `ProviderIdentityPort`, `providerId` do token × body, role de backoffice para wallets/reconciliação; `AUTH_MODE=disabled` para testes [D-04]
+- [ ] **S6-03** Keycloak no Compose com realm importado; `JwtAuthGuard` (JWKS via `jose`), `ProviderIdentityPort`, `providerId` do token × body, role de backoffice para wallets/reconciliação; `AUTH_MODE=disabled` para testes [D-04] — o ponto de extensão (porta, guard global com `@Public()`, `AUTH_MODE`, 401) já existe desde o Sprint 2; falta só o adaptador Keycloak e a autorização nos casos de uso
 - [ ] **S6-04** Job periódico de reconciliação por amostragem [D-07]
 - [ ] **S6-05** OpenTelemetry (traces) — somente se a instrumentação funcionar bem sob Bun [D-05]
 - [ ] **S6-06** *(stretch)* Ledger de partidas dobradas com conta da casa por provedor [D-06]

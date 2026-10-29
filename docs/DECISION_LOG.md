@@ -84,3 +84,8 @@ Formato:
 **Contexto:** o desafio destaca Unit of Work e Identity Map do MikroORM; mas o `flush()` decide sozinho a ordem dos statements, e os triggers/FKs compostas exigem transação antes do lançamento, além do `UPDATE … WHERE version = ?` com contagem de linhas.
 **Decisão:** o ORM gerencia transação, metadata, consultas e locks; escritas são `em.insert`/`em.nativeUpdate` explícitas, em ordem fixa, e leituras usam `disableIdentityMap`.
 **Consequência:** nenhum efeito colateral implícito no commit; o custo é escrever os updates à mão. **Ref:** ADR-013.
+
+### DL-015 · 2026-10-29 · Auditoria de conformidade após o Sprint 2
+**Contexto:** revisão do que existia contra o enunciado. Nenhuma falha eliminatória, mas o §2 exige um ponto de extensão de autenticação **no código** mesmo sem IdP, e ele só estava planejado para o Sprint 6; também havia afirmações na ARCHITECTURE à frente do código (o helper de consistência "verificava outbox").
+**Decisão:** antecipar só o ponto de extensão (porta `ProviderIdentityPort`, guard global com `@Public()`, `AUTH_MODE=disabled`, 401) e corrigir a documentação para descrever o que existe. Itens de sprints futuros (autorização por provider, Keycloak, checagem de outbox) ficaram onde estavam.
+**Consequência:** regra prática: ARCHITECTURE descreve o presente e marca explicitamente o que é planejado. **Ref:** ARCHITECTURE §11 e §12.
