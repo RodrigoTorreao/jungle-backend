@@ -13,6 +13,8 @@ Leia antes de mudar algo relevante:
 - [docs/BACKLOG.md](docs/BACKLOG.md) — sprints e itens; marque `[x]` ao concluir
 - [ARCHITECTURE.md](ARCHITECTURE.md) — decisões (ADRs), schema, fluxos, contratos HTTP, failure codes
 
+[docs/DECISION_LOG.md](docs/DECISION_LOG.md) é o diário de decisões: **não precisa lê-lo** para trabalhar, só acrescentar entradas (ver Fluxo de trabalho).
+
 ## Stack
 
 Bun 1.4.4 (runtime, package manager e test runner) · TypeScript 7 strict · NestJS 12 · PostgreSQL 17 · MikroORM 7 (`EntitySchema`) · AWS SQS via LocalStack 4 · Docker Compose · zod 4 · pino · prom-client · Biome 2.
@@ -113,4 +115,5 @@ infrastructure ┘   (implementa as ports de application)
 1. Pegue o próximo item do [BACKLOG](docs/BACKLOG.md) na ordem dos sprints.
 2. Implemente com testes; rode `typecheck`, `lint` e as suítes afetadas.
 3. Se uma decisão mudou, registre na ARCHITECTURE (nova linha em ADRs ou interpretação).
-4. Marque o item como `[x]` no backlog.
+4. Achado de spike, mudança de rumo, beco sem saída ou interpretação ambígua do enunciado ⇒ acrescente uma entrada `DL-NNN` no fim do [DECISION_LOG](docs/DECISION_LOG.md): 3 a 5 linhas, só o que não está no ARCHITECTURE nem no git. Nunca reescreva entradas antigas; implementação de rotina não entra.
+5. Marque o item como `[x]` no backlog.

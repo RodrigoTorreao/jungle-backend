@@ -5,6 +5,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 - Enunciado: [Desafio.md](Desafio.md)
 - Arquitetura e decisões: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md)
+- Diário de decisões: [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
 > **Status:** Sprint 0 concluído — fundação (Bun + NestJS + MikroORM + PostgreSQL + LocalStack), migrations reversíveis, harness de testes e CI. O domínio de wagering começa no Sprint 1.
 

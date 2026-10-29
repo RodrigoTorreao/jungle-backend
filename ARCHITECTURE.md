@@ -2,6 +2,7 @@
 
 > **Status:** v0.1. Sprint 0 concluído; resultados do spike em §13.1.
 > Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Enunciado: [Desafio.md](Desafio.md)
+> Como chegamos a cada decisão (achados, mudanças de rumo): [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
 ## Sumário
 
