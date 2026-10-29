@@ -54,3 +54,18 @@ Formato:
 **Contexto:** o primeiro CI falhou só em `test:concurrency`; localmente (Windows) o mesmo comando saía com 0.
 **Achado:** o git não versiona pasta vazia; no checkout a pasta não existe, e `bun test --preload` com caminho inexistente sai com 1 sem mensagem. Reproduzido num container `oven/bun:1.4.4`.
 **Consequência:** `test/concurrency/.gitkeep` até o Sprint 3; diferenças Windows × Linux passam a ser checadas em container antes de "corrigir no escuro". **Ref:** commit `4ec6ef0`.
+
+### DL-009 · 2026-10-29 · Backoff do domínio sem jitter
+**Contexto:** o plano previa backoff exponencial "com jitter" para outbox e `PENDING_REFERENCE`; jitter exige aleatoriedade, e o lint proíbe `Math` no domínio.
+**Decisão:** backoff determinístico (`base · 2^n`, com teto) em `domain/shared/backoff.ts`; publishers e workers concorrentes já se evitam com `FOR UPDATE SKIP LOCKED`, então jitter não compra nada ali.
+**Consequência:** sequências de retry testáveis com valores exatos (`2, 4, 8 … 300, 300`). Jitter, se necessário, fica no retry de infraestrutura (S3-02). **Ref:** ARCHITECTURE §8.3.
+
+### DL-010 · 2026-10-29 · Referências de BET, WIN e LOSS
+**Contexto:** o enunciado só detalha referências de `REFUND`/`ROLLBACK`; `WIN` "pode referenciar" e `BET` não é mencionado.
+**Decisão:** `BET` com referência é payload inválido; `WIN`/`LOSS` apontando para algo que não é `BET` é `REFERENCE_MISMATCH` (não `REFERENCE_KIND_NOT_REVERSIBLE`, reservado às reversões).
+**Consequência:** o caso `default` da `WagerPolicy` vira inalcançável por construção. **Ref:** ARCHITECTURE §14 (I-12, I-13).
+
+### DL-011 · 2026-10-29 · Atrito do lint anti-`number` no domínio
+**Contexto:** a regra que proíbe `Number`/`Math`/`parseFloat` em `domain`/`application` também bloqueou usos legítimos: checar que `version` é inteiro e a sugestão do próprio Biome de usar `Math.min`.
+**Decisão:** um único ponto sancionado (`isNonNegativeInteger` em `domain/shared/guards.ts`, com `biome-ignore` justificado) e `useMathMinMax` desligado onde `Math` é proibido.
+**Consequência:** a regra continua ampla; cada exceção é explícita e localizada. **Ref:** `biome.json`.

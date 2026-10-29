@@ -585,7 +585,7 @@ sequenceDiagram
     Note over Q: dedup FIFO de 5 min absorve a maioria, consumidores deduplicam por eventId
 ```
 
-- Falha de publish → `scheduleRetry`: `attempts + 1`, `next_attempt_at = now + min(1s * 2^attempts, 5min)` com jitter. Nunca descarta: um evento confirmado não se perde (métrica e alerta para `attempts` alto).
+- Falha de publish → `scheduleRetry`: `attempts + 1`, `next_attempt_at = now + min(1s * 2^attempts, 5min)`, sem jitter (backoff determinístico no domínio; publishers concorrentes já se evitam com `SKIP LOCKED`). Nunca descarta: um evento confirmado não se perde (métrica e alerta para `attempts` alto).
 - Cenário do desafio (commit → crash → outra instância publica → duplicata segura) é coberto porque a outbox é gravada na transação financeira e a publicação é at-least-once com `eventId` estável.
 - Ordem: publishers concorrentes podem inverter eventos da mesma wallet. Consumidores ordenam por `walletVersion` (presente em `WalletBalanceChanged`). Ver limitações.
 
@@ -764,6 +764,8 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 | I-09 | Referência `REJECTED`/`FAILED` → `REFERENCE_NOT_PROCESSED`; referência em `PENDING_REFERENCE` → continua pendente | só se reverte o que foi aplicado |
 | I-10 | Mesmo `messageId` com payload diferente → DLQ + métrica | indica bug do produtor, não replay |
 | I-11 | Idempotency key tem escopo por `providerId` | evita colisão entre provedores |
+| I-12 | `BET` não aceita `referenceExternalTransactionId` (400 `VALIDATION_ERROR`) | aposta abre a rodada; não há o que referenciar |
+| I-13 | `WIN`/`LOSS` com referência que não é uma `BET` → `REFERENCE_MISMATCH` | o resultado de rodada só liquida uma aposta; `REFERENCE_KIND_NOT_REVERSIBLE` fica reservado às reversões |
 
 ---
 

@@ -49,16 +49,16 @@ flowchart LR
 
 **Objetivo:** todas as invariantes encapsuladas em classes TypeScript puras, 100% testadas em unidade.
 
-- [ ] **S1-01** `Money` sobre `bigint` (centavos): `from`, `zero`, `add`, `subtract`, `negate`, comparações, `toJSON`, `toString`, `assertSameCurrency` [RF-D01, RF-D02, T-U01, T-U04]
-- [ ] **S1-02** Erros de domínio tipados (`DomainError`, `CurrencyMismatchError`, `InvalidMoneyError`, `InvalidTransactionStateError`, …)
-- [ ] **S1-03** `FailureCode` (enum + metadados: categoria, retryable, ação sugerida ao provedor) [RF-D08]
-- [ ] **S1-04** `Wallet`: `open`, `rehydrate`, `debit`/`credit` retornando o `WalletLedgerEntry` gerado; `version` [RF-D03, T-U02]
-- [ ] **S1-05** `WalletLedgerEntry` imutável com validação aritmética na factory [RF-D05, T-U07]
-- [ ] **S1-06** `WagerTransaction`: `create`, `rehydrate`, transições, `isTerminal`, `affectsBalance`, `requiresReference`, `matchesPayload`, `ledgerDirectionFor`, `scheduleReferenceRetry` [RF-D04, T-U06]
-- [ ] **S1-07** Serviço de domínio `WagerPolicy` (ou equivalente): aplica BET/WIN/LOSS/REFUND/ROLLBACK sobre wallet + referência e decide `PROCESSED`/`REJECTED`/`PENDING_REFERENCE` [RN-01..RN-12, T-U03]
-- [ ] **S1-08** `InboxMessage`, `OutboxMessage` (backoff exponencial com jitter e teto) [RF-D06, T-U08]
-- [ ] **S1-09** `IntegrationEvent<T>` abstrato + `WagerTransactionProcessed`, `WagerTransactionRejected`, `WalletBalanceChanged`, `WagerTransactionPendingReference`, `WalletOpened` [RF-D07]
-- [ ] **S1-10** `PayloadHasher`: JSON canônico (chaves ordenadas, `amount` normalizado) + SHA-256 [RN-14, T-U05]
+- [x] **S1-01** `Money` sobre `bigint` (centavos): `from`, `zero`, `add`, `subtract`, `negate`, comparações, `toJSON`, `toString`, `assertSameCurrency` [RF-D01, RF-D02, T-U01, T-U04]
+- [x] **S1-02** Erros de domínio tipados (`DomainError`, `CurrencyMismatchError`, `InvalidMoneyError`, `InvalidTransactionStateError`, …)
+- [x] **S1-03** `FailureCode` (enum + metadados: categoria, retryable, ação sugerida ao provedor) [RF-D08]
+- [x] **S1-04** `Wallet`: `open`, `rehydrate`, `debit`/`credit` retornando o `WalletLedgerEntry` gerado; `version` [RF-D03, T-U02]
+- [x] **S1-05** `WalletLedgerEntry` imutável com validação aritmética na factory [RF-D05, T-U07]
+- [x] **S1-06** `WagerTransaction`: `create`, `rehydrate`, transições, `isTerminal`, `affectsBalance`, `requiresReference`, `matchesPayload`, `ledgerDirectionFor`, `scheduleReferenceRetry` [RF-D04, T-U06]
+- [x] **S1-07** Serviço de domínio `WagerPolicy` (ou equivalente): aplica BET/WIN/LOSS/REFUND/ROLLBACK sobre wallet + referência e decide `PROCESSED`/`REJECTED`/`PENDING_REFERENCE` [RN-01..RN-12, T-U03]
+- [x] **S1-08** `InboxMessage`, `OutboxMessage` (backoff exponencial determinístico com teto) [RF-D06, T-U08]
+- [x] **S1-09** `IntegrationEvent<T>` abstrato + `WagerTransactionProcessed`, `WagerTransactionRejected`, `WalletBalanceChanged`, `WagerTransactionPendingReference`, `WalletOpened` [RF-D07]
+- [x] **S1-10** `PayloadHasher`: JSON canônico (chaves ordenadas, `amount` normalizado) + SHA-256 [RN-14, T-U05]
 
 **Critério de saída:** `bun run test:unit` verde; `src/domain` não importa nada fora de si mesmo.
 
