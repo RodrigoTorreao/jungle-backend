@@ -141,12 +141,12 @@ flowchart LR
 
 **Objetivo:** ir além, sem comprometer o que já está correto. Cada item tem timebox.
 
-- [ ] **S6-01** Teste de carga `bun run test:load` (cenários: wallets uniformes, hot wallet, ingestão SQS) + `docs/LOAD_TEST.md` com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos e outbox lag [D-01]
-- [ ] **S6-02** Prometheus + Grafana provisionados (profile `observability`) com dashboard [D-03]
-- [ ] **S6-03** Keycloak no Compose com realm importado; `JwtAuthGuard` (JWKS via `jose`), `ProviderIdentityPort`, `providerId` do token × body, role de backoffice para wallets/reconciliação; `AUTH_MODE=disabled` para testes [D-04] — o ponto de extensão (porta, guard global com `@Public()`, `AUTH_MODE`, 401) já existe desde o Sprint 2; a checagem provider do token × payload também já existe (Sprint 3, `assertMayActFor`); falta o adaptador Keycloak e a exigência do role de backoffice em wallets/reconciliação
-- [ ] **S6-04** Job periódico de reconciliação por amostragem [D-07]
-- [ ] **S6-05** OpenTelemetry (traces) — somente se a instrumentação funcionar bem sob Bun [D-05]
-- [ ] **S6-06** *(stretch)* Ledger de partidas dobradas com conta da casa por provedor [D-06]
+- [x] **S6-01** Teste de carga `bun run test:load` (cenários: wallets uniformes, hot wallet, ingestão SQS) + `docs/LOAD_TEST.md` com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos e outbox lag [D-01]
+- [x] **S6-02** Prometheus + Grafana provisionados (profile `observability`) com dashboard [D-03]
+- [x] **S6-03** Keycloak no Compose (profile `auth`) com realm importado; `JwtProviderIdentity` (JWKS via `jose`), `providerId` do token × body, role `wallet-admin` exigida em criar wallet, ledger e reconciliação; `AUTH_MODE=disabled` para testes [D-04]
+- [x] **S6-04** Job periódico de reconciliação por amostragem [D-07]
+- [x] **S6-05** OpenTelemetry (traces) — somente se a instrumentação funcionar bem sob Bun [D-05]
+- [ ] **S6-06** *(stretch)* Ledger de partidas dobradas com conta da casa por provedor [D-06] — não feito: fora do timebox; o ledger de lançamento único com as garantias no schema atende ao enunciado (ARCHITECTURE §16)
 
 ---
 

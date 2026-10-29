@@ -7,7 +7,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 - Requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md)
 - Diário de decisões: [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
-> **Status:** Sprints 0–5 concluídos — domínio, schema com as garantias financeiras, API HTTP, mensageria (SQS, inbox, outbox, pendências), observabilidade (logs com contexto, `/metrics`, `/health/ready`) e correção comprovada com 3 processos reais, `kill -9` e `SIGTERM`. Sprint 6: diferenciais (carga, Grafana, Keycloak).
+> **Status:** Sprints 0–6 concluídos — domínio, schema com as garantias financeiras, API HTTP, mensageria (SQS, inbox, outbox, pendências), observabilidade (logs com contexto, `/metrics`, `/health/ready`), correção comprovada com 3 processos reais, `kill -9` e `SIGTERM`, e os diferenciais: teste de carga com relatório ([docs/LOAD_TEST.md](docs/LOAD_TEST.md)), Prometheus + Grafana, autenticação com Keycloak, traces OpenTelemetry e reconciliação periódica.
 
 ## Pré-requisitos
 
@@ -41,6 +41,7 @@ A mesma aplicação roda qualquer combinação de papéis via `APP_ROLES` (lista
 | `consumer` | consome `wager-transactions.fifo` (inbox, DLQ, backoff) |
 | `outbox-publisher` | publica a outbox em `wagering-events.fifo` |
 | `pending-reference-worker` | resolve transações `PENDING_REFERENCE` |
+| `reconciliation-worker` | reconcilia uma amostra de wallets por minuto (`RECONCILIATION_*`) |
 
 ```bash
 APP_ROLES=all bun run dev
@@ -65,6 +66,32 @@ Operação:
 | `GET /health/ready` | PostgreSQL e filas alcançáveis; 503 durante o shutdown |
 | `GET /metrics` | métricas Prometheus (catálogo no ARCHITECTURE §10) |
 
+### Profiles opcionais
+
+```bash
+# métricas, dashboard e traces
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 \
+  docker compose --profile app --profile observability up -d --build --wait
+# Grafana: http://localhost:3001 · Prometheus: http://localhost:9090 · Jaeger: http://localhost:16686
+
+# autenticação com Keycloak (realm importado; admin em http://localhost:8180, admin/admin)
+AUTH_MODE=keycloak docker compose --profile app --profile auth up -d --build --wait
+curl -s http://localhost:8180/realms/wagering/protocol/openid-connect/token \
+  -d grant_type=client_credentials -d client_id=provider-a -d client_secret=provider-a-secret
+```
+
+Clients do realm: `provider-a` e `provider-b` (provedores, claim `provider_id`) e `backoffice` (role `wallet-admin`: criar wallet, ledger, reconciliação). Os segredos são `<client>-secret`, só para desenvolvimento. Detalhes e matriz de autorização no ARCHITECTURE §11.
+
+### Teste de carga
+
+```bash
+docker compose --profile app --profile observability up -d --build --wait
+docker compose --profile app --profile observability --profile load run --rm loadgen
+# ou, do host: PROMETHEUS_URL=http://localhost:9090 bun run test:load
+```
+
+Metodologia, resultados e análise em [docs/LOAD_TEST.md](docs/LOAD_TEST.md). O alvo precisa estar com `AUTH_MODE=disabled`.
+
 ## Comandos
 
 | Comando | O que faz |
@@ -79,6 +106,7 @@ Operação:
 | `bun run test:integration` | PostgreSQL e LocalStack reais; exige o Compose de pé |
 | `bun run test:concurrency` | idem, com paralelismo real |
 | `bun run test` | todas as suítes |
+| `bun run test:load` | teste de carga contra o cluster em `:8080` ([docs/LOAD_TEST.md](docs/LOAD_TEST.md)) |
 
 ### Como os testes isolam o banco
 
@@ -108,4 +136,4 @@ wsl -d Ubuntu --cd . -- docker run --rm --network jungle-wagering_default -v "$P
 
 ## CI
 
-`.github/workflows/ci.yml` roda typecheck, `biome ci`, testes de unidade e — com o Compose de pé no runner — migrations `up → down → up`, integração e concorrência.
+`.github/workflows/ci.yml` roda typecheck, `biome ci`, testes de unidade e — com o Compose de pé no runner — migrations `up → down → up`, integração e concorrência. O job `cluster` constrói a imagem, sobe 3 réplicas atrás do nginx, faz um smoke test, roda uma carga curta com as checagens de correção, percorre o fluxo de autenticação com o Keycloak real e para as réplicas com `SIGTERM`.

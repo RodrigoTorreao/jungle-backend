@@ -42,9 +42,10 @@ bun run test:unit
 bun run test:integration             # exige compose de pé
 bun run test:concurrency             # exige compose de pé
 bun run test                         # todas as suítes
+bun run test:load                    # carga contra o cluster em :8080 (docs/LOAD_TEST.md)
 ```
 
-Planejados: `bun run test:load` (Sprint 6), profiles `observability` e `auth` no Compose.
+Profiles do Compose: `app` (3 réplicas + nginx), `observability` (Prometheus, Grafana, Jaeger), `auth` (Keycloak, com `AUTH_MODE=keycloak`), `load` (`loadgen`).
 
 ## Regras invioláveis (eliminatórias no desafio)
 
@@ -74,7 +75,8 @@ infrastructure ┘   (implementa as ports de application)
 - Persistência: `EntitySchema` + mappers em `src/infrastructure/persistence`; o domínio não conhece o ORM.
 - Escritas financeiras são explícitas (`em.insert`, `em.nativeUpdate … WHERE version = ?`) dentro de `UnitOfWork.run`, na ordem: wallet/transação → ledger → outbox. Não use `persist()`/`flush()` para essas tabelas; leituras com `disableIdentityMap` (ADR-013).
 - Toda mudança de saldo passa por `TransactionScope`: `wallets.lockForUpdate` → domínio → `transactions.insert/update` → `ledger.append` → `wallets.update(wallet, expectedVersion)` → `outbox.enqueue`.
-- Autenticação: todo endpoint passa pelo `AuthGuard` global (porta `ProviderIdentityPort`); rotas abertas usam `@Public()`. Hoje `AUTH_MODE=disabled` (todo chamador é `trusted`).
+- Autenticação: todo endpoint passa pelo `AuthGuard` global (porta `ProviderIdentityPort`); rotas abertas usam `@Public()`. `AUTH_MODE=disabled` (padrão, todo chamador é `trusted`) ou `keycloak` (`JwtProviderIdentity`). A autorização fica nos casos de uso: comandos recebem `principal` obrigatório (`TRUSTED` em workers, scripts e testes); rotas de backoffice usam `assertBackoffice`.
+- Tracing: `src/infrastructure/observability/tracing.ts` precisa continuar sendo o **primeiro import** do `main.ts` (instrumenta `http` e `pg` antes de serem carregados). Spans manuais via `inSpan`; atributos nunca levam valores monetários.
 - Use cases em `src/application/use-cases`; HTTP e SQS chamam **o mesmo** `ProcessWagerTransaction`.
 - Ordem de locks numa transação: inbox → wallet → wager_transactions → inserts. Não inverta.
 
@@ -106,6 +108,8 @@ infrastructure ┘   (implementa as ports de application)
 - `%USERPROFILE%\.wslconfig` desliga o shutdown por ociosidade (`instanceIdleTimeout=-1`, `vmIdleTimeout=-1`), então os containers ficam de pé. Depois de um reboot ou `wsl --shutdown`, suba de novo o Compose e confirme com `docker compose ps`.
 - Não use `cd` solto no shell da ferramenta (muda o diretório da sessão); prefira caminhos absolutos ou `git -C`.
 - Testes que dependem de sinais POSIX (`SIGTERM`, `SIGKILL`) e de crash de processo devem rodar em container Linux, WSL2 ou CI — não confie no resultado deles rodando nativamente no Windows.
+- `wsl … -- sh -c '…'` chamado pelo PowerShell quebra o comando nas aspas duplas internas: para sequências de comandos no WSL, escreva um script e rode `wsl … -- sh <script>`.
+- Ao editar arquivos com Python no Windows, abra com `newline=''`; senão as quebras viram CRLF e o Biome reprova.
 
 ## Banco e testes de integração
 

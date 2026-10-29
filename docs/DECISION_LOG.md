@@ -124,3 +124,23 @@ Formato:
 **Contexto:** ao pôr um proxy TCP na frente do LocalStack para simular queda do SQS, as requisições não passavam pelo proxy.
 **Achado:** versões recentes do SDK mandam cada requisição para o host do `QueueUrl`, e o LocalStack devolve `localhost.localstack.cloud:4566` — o `AWS_ENDPOINT_URL` deixava de valer (e havia dependência de DNS público).
 **Decisão:** `useQueueUrlAsEndpoint: false` sempre que há endpoint explícito. **Ref:** ADR-015, `src/infrastructure/messaging/sqs.ts`.
+
+### DL-023 · 2026-10-29 · O teste de carga achou o gargalo na outbox, não na API
+**Contexto:** primeira execução completa do teste de carga (3 réplicas, ~500 tx/s, ~1000 eventos/s).
+**Achado:** a API estava saudável (p99 137 ms), mas o lag da outbox chegou a 31 s e a fila levava 14 s para esvaziar depois da carga. Por lote de 50, o relay fazia 5 `SendMessageBatch` em sequência e 50 `UPDATE` individuais, tudo dentro da transação que segura as linhas.
+**Decisão:** pistas paralelas por hash do `aggregateId`, que preservam a ordem de cada wallet, e um único `UPDATE` por lote. O lag caiu para menos de 3 s. **Ref:** ADR-016, docs/LOAD_TEST.md §5.1.
+
+### DL-024 · 2026-10-29 · Mais réplicas não aumentaram o throughput nesta máquina
+**Contexto:** queríamos saber se o teto de ~500 tx/s era das réplicas (cada uma em ~110% de CPU).
+**Achado:** com 6 réplicas o throughput ficou igual, e com 64 usuários virtuais a latência dobrou. O PostgreSQL subiu de ~200% para ~350% de CPU e o LocalStack ficou em ~110% (um processo). O limite está nos componentes compartilhados de um único host.
+**Decisão:** reportar o teto como do ambiente e não otimizar a aplicação às cegas; os próximos passos de medição ficaram listados no relatório. **Ref:** docs/LOAD_TEST.md §5.2.
+
+### DL-025 · 2026-10-29 · OpenTelemetry funciona sob Bun, com uma pegadinha no `pg`
+**Contexto:** o backlog só aceitava OTel "se a instrumentação funcionar bem sob Bun".
+**Achado:** um spike mostrou que os módulos carregados por `require` (`http`, `pg`) geram os mesmos spans sob Bun e sob Node; módulos ESM não são instrumentados em nenhum dos dois sem loader. Na aplicação, os spans de SQL não apareciam: o `pg` 8.23 tem uma entrada ESM, que é o que o MikroORM importa.
+**Decisão:** carregar o `pg` uma vez por `require` logo após registrar a instrumentação. A entrada ESM reexporta o mesmo código CommonJS já instrumentado. Os spans do SQS são manuais, porque o AWS SDK v3 é ESM. **Ref:** ADR-018.
+
+### DL-026 · 2026-10-29 · Emissor do token igual para o host e para a rede do Compose
+**Contexto:** clientes pegam o token em `localhost:8180`, enquanto as réplicas alcançam o Keycloak como `keycloak:8080`.
+**Achado:** por padrão, o `iss` do token depende do host usado na requisição, então a validação de `iss` falharia para um dos dois caminhos.
+**Decisão:** `KC_HOSTNAME=http://localhost:8180` fixa o emissor; a app compara com `OIDC_ISSUER` e busca as chaves por `OIDC_JWKS_URL`, pela rede interna. **Ref:** ARCHITECTURE §11.
