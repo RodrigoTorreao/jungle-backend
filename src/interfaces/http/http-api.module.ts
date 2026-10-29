@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import {
   UNIT_OF_WORK,
   type UnitOfWork,
@@ -8,6 +9,7 @@ import {
 import { CLOCK, type Clock, ID_GENERATOR, type IdGenerator } from '../../application/ports/system';
 import { CreateWalletUseCase } from '../../application/use-cases/create-wallet';
 import { GetWalletQuery, ListWalletLedgerQuery } from '../../application/use-cases/wallet-queries';
+import { AuthGuard } from './auth/auth.guard';
 import { HealthController } from './health/health.controller';
 import { WalletsController } from './wallets/wallets.controller';
 
@@ -15,6 +17,7 @@ import { WalletsController } from './wallets/wallets.controller';
 @Module({
   controllers: [HealthController, WalletsController],
   providers: [
+    { provide: APP_GUARD, useClass: AuthGuard },
     {
       provide: CreateWalletUseCase,
       inject: [UNIT_OF_WORK, ID_GENERATOR, CLOCK],

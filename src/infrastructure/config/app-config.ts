@@ -40,6 +40,8 @@ const envSchema = z.object({
   SQS_WAGER_TRANSACTIONS_DLQ: z.string().endsWith('.fifo').default('wager-transactions-dlq.fifo'),
   SQS_EVENTS_QUEUE: z.string().endsWith('.fifo').default('wagering-events.fifo'),
   SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(20_000),
+  /** Only `disabled` exists until the IdP adapter lands (ARCHITECTURE §11). */
+  AUTH_MODE: z.enum(['disabled']).default('disabled'),
 });
 
 export interface AppConfig {
@@ -64,6 +66,9 @@ export interface AppConfig {
     readonly eventsQueue: string;
   };
   readonly shutdownGraceMs: number;
+  readonly auth: {
+    readonly mode: 'disabled';
+  };
 }
 
 export class InvalidConfigError extends Error {
@@ -99,5 +104,6 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
       eventsQueue: e.SQS_EVENTS_QUEUE,
     },
     shutdownGraceMs: e.SHUTDOWN_GRACE_MS,
+    auth: { mode: e.AUTH_MODE },
   };
 }

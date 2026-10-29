@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from '@nestjs/common';
+import { AuthModule } from './infrastructure/auth/auth.module';
 import type { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
 import { LoggerModule } from './infrastructure/observability/logger.module';
@@ -14,6 +15,7 @@ export class AppModule {
         ConfigModule.forRoot(config),
         LoggerModule,
         DatabaseModule.forRoot(),
+        AuthModule,
         HttpApiModule,
       ],
     };

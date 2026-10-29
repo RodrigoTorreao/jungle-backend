@@ -30,6 +30,15 @@ export class InvalidRequestError extends ApplicationError {
   }
 }
 
+/** Missing or invalid credentials. */
+export class UnauthenticatedError extends ApplicationError {
+  readonly code = 'UNAUTHENTICATED';
+
+  constructor(message = 'Missing or invalid credentials') {
+    super(message);
+  }
+}
+
 export class ResourceNotFoundError extends ApplicationError {
   readonly code = 'NOT_FOUND';
 

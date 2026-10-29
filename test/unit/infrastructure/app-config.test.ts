@@ -23,6 +23,7 @@ describe('loadConfig', () => {
     });
     expect(config.sqs.wagerTransactionsQueue).toBe('wager-transactions.fifo');
     expect(config.sqs.wagerTransactionsDlq).toBe('wager-transactions-dlq.fifo');
+    expect(config.auth).toEqual({ mode: 'disabled' });
   });
 
   test('expands APP_ROLES=all into every role', () => {
@@ -40,6 +41,7 @@ describe('loadConfig', () => {
     ['unknown role', { ...minimal, APP_ROLES: 'api,cron' }],
     ['empty role list', { ...minimal, APP_ROLES: ' , ' }],
     ['non-numeric port', { ...minimal, PORT: 'eighty' }],
+    ['an auth mode without an adapter yet', { ...minimal, AUTH_MODE: 'keycloak' }],
     ['non-FIFO input queue', { ...minimal, SQS_WAGER_TRANSACTIONS_QUEUE: 'wager-transactions' }],
   ])('rejects %s', (_case, env) => {
     expect(() => loadConfig(env)).toThrow(InvalidConfigError);

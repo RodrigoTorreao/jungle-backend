@@ -14,6 +14,7 @@ import {
   InvariantBreachError,
   ResourceNotFoundError,
   TransientInfrastructureError,
+  UnauthenticatedError,
   WalletAlreadyExistsError,
 } from '../../application/errors';
 import { InvalidMoneyError } from '../../domain/money/money';
@@ -48,6 +49,9 @@ export function toProblem(error: unknown): Problem {
     error instanceof InvalidMoneyError
   ) {
     return problem(400, error.code, 'Invalid request', error.message, false);
+  }
+  if (error instanceof UnauthenticatedError) {
+    return problem(401, error.code, 'Unauthenticated', error.message, false);
   }
   if (error instanceof ResourceNotFoundError) {
     return problem(404, error.code, 'Not found', error.message, false);
