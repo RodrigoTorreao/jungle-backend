@@ -1,5 +1,6 @@
 import { MikroORM } from '@mikro-orm/postgresql';
 import type { INestApplication } from '@nestjs/common';
+import type { FaultInjector } from '../../src/application/ports/fault-injector';
 import type { UnitOfWork } from '../../src/application/ports/persistence';
 import { CreateWalletUseCase } from '../../src/application/use-cases/create-wallet';
 import { createApp } from '../../src/bootstrap';
@@ -32,15 +33,20 @@ export interface Persistence {
 /** The real persistence stack, connected as the runtime role. */
 export async function connectPersistence(
   db: TestDatabase,
-  options: Partial<UnitOfWorkOptions> & { poolMax?: number } = {},
+  options: Partial<UnitOfWorkOptions> & { poolMax?: number; faults?: FaultInjector } = {},
 ): Promise<Persistence> {
   const orm = await MikroORM.init(
     createOrmOptions({ clientUrl: db.appUrl, poolMax: options.poolMax ?? 10 }),
   );
-  const unitOfWork = new MikroOrmUnitOfWork(orm, clock, {
-    lockTimeoutMs: options.lockTimeoutMs ?? 2_000,
-    statementTimeoutMs: options.statementTimeoutMs ?? 5_000,
-  });
+  const unitOfWork = new MikroOrmUnitOfWork(
+    orm,
+    clock,
+    {
+      lockTimeoutMs: options.lockTimeoutMs ?? 2_000,
+      statementTimeoutMs: options.statementTimeoutMs ?? 5_000,
+    },
+    options.faults,
+  );
   return {
     orm,
     unitOfWork,
