@@ -86,5 +86,37 @@ export interface WalletReader {
   ): Promise<LedgerPage>;
 }
 
+export interface WagerTransactionReader {
+  findById(id: string): Promise<WagerTransaction | undefined>;
+  findByExternalId(
+    providerId: string,
+    externalTransactionId: string,
+  ): Promise<WagerTransaction | undefined>;
+}
+
+/**
+ * One consistent snapshot of a wallet and its whole ledger. All arithmetic is done by the
+ * database in `numeric`; amounts are decimal strings (possibly negative for `difference`).
+ */
+export interface ReconciliationSnapshot {
+  readonly walletId: string;
+  readonly currency: string;
+  readonly storedBalance: string;
+  readonly calculatedBalance: string;
+  /** storedBalance − calculatedBalance */
+  readonly difference: string;
+  readonly balancesMatch: boolean;
+  /** The latest entry ends exactly at the stored balance and version (or none at version 1). */
+  readonly latestEntryMatches: boolean;
+  readonly checkedEntries: number;
+}
+
+export interface ReconciliationReader {
+  /** Read-only, REPEATABLE READ: wallet and ledger seen at the same instant, no locks taken. */
+  snapshot(walletId: string): Promise<ReconciliationSnapshot | undefined>;
+}
+
 export const UNIT_OF_WORK = Symbol('UnitOfWork');
 export const WALLET_READER = Symbol('WalletReader');
+export const WAGER_TRANSACTION_READER = Symbol('WagerTransactionReader');
+export const RECONCILIATION_READER = Symbol('ReconciliationReader');

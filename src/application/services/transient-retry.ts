@@ -1,0 +1,43 @@
+import { type BackoffPolicy, backoffDelayMs } from '../../domain/shared/backoff';
+import { ConcurrencyConflictError, TransientInfrastructureError } from '../errors';
+
+export interface TransientRetryPolicy extends BackoffPolicy {
+  readonly maxAttempts: number;
+}
+
+/**
+ * 3 attempts, 20ms then 40ms. Lock waits already serialize writers of the same wallet, so a
+ * retry here only absorbs the rare deadlock, lock timeout or duplicate-insert race.
+ */
+export const DEFAULT_TRANSIENT_RETRY: TransientRetryPolicy = Object.freeze({
+  maxAttempts: 3,
+  baseDelayMs: 20,
+  maxDelayMs: 200,
+});
+
+export function isRetryable(error: unknown): boolean {
+  return error instanceof TransientInfrastructureError || error instanceof ConcurrencyConflictError;
+}
+
+/**
+ * Re-runs `operation` (a whole SQL transaction) on transient failures. The operation must be
+ * idempotent per attempt: it rebuilds every domain object from the database each time.
+ * When attempts run out, the transient error propagates (HTTP 503 / SQS retry).
+ */
+export async function withTransientRetry<T>(
+  operation: (attempt: number) => Promise<T>,
+  policy: TransientRetryPolicy = DEFAULT_TRANSIENT_RETRY,
+  onRetry?: (error: unknown, attempt: number) => void,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      if (!isRetryable(error) || attempt >= policy.maxAttempts) {
+        throw error;
+      }
+      onRetry?.(error, attempt);
+      await new Promise((resolve) => setTimeout(resolve, backoffDelayMs(attempt - 1, policy)));
+    }
+  }
+}

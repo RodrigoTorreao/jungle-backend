@@ -77,6 +77,13 @@ describe('WagerTransaction.create', () => {
     }
   });
 
+  test('the internal provider id is reserved', () => {
+    expectValidationCode(
+      () => submit(wallet, Kind.Bet, '1.00', { providerId: 'internal' }),
+      FailureCode.ValidationError,
+    );
+  });
+
   test('empty business identifiers are rejected', () => {
     expectValidationCode(
       () => submit(wallet, Kind.Bet, '1.00', { roundId: ' ' }),

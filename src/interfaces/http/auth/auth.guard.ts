@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { UnauthenticatedError } from '../../../application/errors';
 import {
   PROVIDER_IDENTITY,
   type Principal,
@@ -19,6 +20,14 @@ const PUBLIC_ROUTE = 'auth:public';
 export const Public = () => SetMetadata(PUBLIC_ROUTE, true);
 
 export type AuthenticatedRequest = Request & { principal?: Principal };
+
+/** The caller resolved by the guard. Missing only if the guard did not run: treat as unauthenticated. */
+export function principalOf(request: AuthenticatedRequest): Principal {
+  if (request.principal === undefined) {
+    throw new UnauthenticatedError('No principal resolved for this request');
+  }
+  return request.principal;
+}
 
 /**
  * Global guard: resolves the caller through the ProviderIdentityPort and attaches it to the

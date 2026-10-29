@@ -143,6 +143,12 @@ export class WagerTransaction {
     ] as const) {
       assertNonEmpty(props[field], field);
     }
+    if (props.providerId === INTERNAL_PROVIDER_ID) {
+      throw new DomainValidationError(
+        FailureCode.ValidationError,
+        `Provider id "${INTERNAL_PROVIDER_ID}" is reserved`,
+      );
+    }
     if (!EXTERNAL_KINDS.has(props.kind)) {
       throw new DomainValidationError(
         FailureCode.UnsupportedKind,

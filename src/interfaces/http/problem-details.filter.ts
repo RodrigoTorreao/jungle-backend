@@ -10,12 +10,16 @@ import type { Request, Response } from 'express';
 import {
   ApplicationError,
   ConcurrencyConflictError,
+  ExternalTransactionIdConflictError,
+  IdempotencyKeyConflictError,
   InvalidRequestError,
   InvariantBreachError,
+  ProviderMismatchError,
   ResourceNotFoundError,
   TransientInfrastructureError,
   UnauthenticatedError,
   WalletAlreadyExistsError,
+  WalletNotFoundError,
 } from '../../application/errors';
 import { InvalidMoneyError } from '../../domain/money/money';
 import { DomainError, DomainValidationError } from '../../domain/shared/domain-error';
@@ -35,9 +39,10 @@ const RETRY_AFTER_SECONDS = '1';
 /**
  * The single place where errors become HTTP (ARCHITECTURE §9.1). Every category gets its own
  * status so a provider never has to parse a message to decide whether to resend:
- *   400 invalid payload · 404 unknown resource · 409 conflict · 503 transient (Retry-After)
- *   500 invariant breach / unexpected. Business rejections (422) and pending (202) are
- *   regular responses of the wager endpoint, not errors.
+ *   400 invalid payload · 401/403 identity · 404 unknown resource · 409 conflict
+ *   422 unpersisted business rejection · 503 transient (Retry-After) · 500 invariant/unexpected.
+ *   Persisted outcomes (200 processed, 202 pending, 422 rejected) are regular responses of
+ *   the wager endpoint, not errors.
  */
 export function toProblem(error: unknown): Problem {
   if (error instanceof RequestValidationError) {
@@ -53,11 +58,22 @@ export function toProblem(error: unknown): Problem {
   if (error instanceof UnauthenticatedError) {
     return problem(401, error.code, 'Unauthenticated', error.message, false);
   }
+  if (error instanceof ProviderMismatchError) {
+    return problem(403, error.code, 'Forbidden', error.message, false);
+  }
   if (error instanceof ResourceNotFoundError) {
     return problem(404, error.code, 'Not found', error.message, false);
   }
-  if (error instanceof WalletAlreadyExistsError) {
+  if (
+    error instanceof WalletAlreadyExistsError ||
+    error instanceof IdempotencyKeyConflictError ||
+    error instanceof ExternalTransactionIdConflictError
+  ) {
     return problem(409, error.code, 'Conflict', error.message, false);
+  }
+  if (error instanceof WalletNotFoundError) {
+    // A business rejection that cannot be persisted (no wallet to attach it to, I-04).
+    return problem(422, error.code, 'Rejected', error.message, false);
   }
   if (error instanceof TransientInfrastructureError || error instanceof ConcurrencyConflictError) {
     return problem(503, error.code, 'Temporarily unavailable', error.message, true);

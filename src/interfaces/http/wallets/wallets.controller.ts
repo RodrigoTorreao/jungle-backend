@@ -2,11 +2,12 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from
 import type { Request } from 'express';
 import { z } from 'zod';
 import { CreateWalletUseCase } from '../../../application/use-cases/create-wallet';
+import { ReconcileWalletUseCase } from '../../../application/use-cases/reconcile-wallet';
 import {
   GetWalletQuery,
   ListWalletLedgerQuery,
 } from '../../../application/use-cases/wallet-queries';
-import type { LedgerPageView, WalletView } from '../../../application/views';
+import type { LedgerPageView, ReconciliationView, WalletView } from '../../../application/views';
 import { correlationIdOf, MoneyBody, parseRequest, UuidParam } from '../request';
 
 const CreateWalletBody = z.object({ playerId: z.uuid(), initialBalance: MoneyBody }).strict();
@@ -22,6 +23,7 @@ export class WalletsController {
     @Inject(CreateWalletUseCase) private readonly createWallet: CreateWalletUseCase,
     @Inject(GetWalletQuery) private readonly getWallet: GetWalletQuery,
     @Inject(ListWalletLedgerQuery) private readonly listLedger: ListWalletLedgerQuery,
+    @Inject(ReconcileWalletUseCase) private readonly reconcile: ReconcileWalletUseCase,
   ) {}
 
   @Post()
@@ -44,5 +46,15 @@ export class WalletsController {
       cursor: params.cursor,
       limit: params.limit,
     });
+  }
+
+  /** Never corrects anything: reports, logs and counts divergences (RF-H07). */
+  @Post(':walletId/reconciliation')
+  @HttpCode(200)
+  reconciliation(
+    @Param('walletId') walletId: string,
+    @Req() request: Request,
+  ): Promise<ReconciliationView> {
+    return this.reconcile.execute(parseRequest(UuidParam, walletId), correlationIdOf(request));
   }
 }

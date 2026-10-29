@@ -3,6 +3,7 @@ import { AuthModule } from './infrastructure/auth/auth.module';
 import type { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
 import { LoggerModule } from './infrastructure/observability/logger.module';
+import { ObservabilityModule } from './infrastructure/observability/observability.module';
 import { DatabaseModule } from './infrastructure/persistence/database.module';
 import { HttpApiModule } from './interfaces/http/http-api.module';
 
@@ -16,6 +17,7 @@ export class AppModule {
         LoggerModule,
         DatabaseModule.forRoot(),
         AuthModule,
+        ObservabilityModule,
         HttpApiModule,
       ],
     };

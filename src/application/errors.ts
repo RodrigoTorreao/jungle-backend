@@ -39,6 +39,42 @@ export class UnauthenticatedError extends ApplicationError {
   }
 }
 
+/** The authenticated provider is not the one named in the payload. */
+export class ProviderMismatchError extends ApplicationError {
+  readonly code = 'PROVIDER_MISMATCH';
+
+  constructor(message = 'The authenticated caller cannot act for this provider') {
+    super(message);
+  }
+}
+
+/** Same Idempotency-Key with a different payload: a conflict, never a replay (RN-14). */
+export class IdempotencyKeyConflictError extends ApplicationError {
+  readonly code = FailureCode.IdempotencyKeyConflict;
+
+  constructor(providerId: string, idempotencyKey: string) {
+    super(`Idempotency key ${idempotencyKey} of ${providerId} was used with another payload`);
+  }
+}
+
+/** Another Idempotency-Key already claimed this provider transaction id. */
+export class ExternalTransactionIdConflictError extends ApplicationError {
+  readonly code = FailureCode.ExternalTransactionIdConflict;
+
+  constructor(providerId: string, externalTransactionId: string) {
+    super(`Transaction ${externalTransactionId} of ${providerId} was submitted with another key`);
+  }
+}
+
+/** The target wallet does not exist; nothing is persisted (interpretation I-04). */
+export class WalletNotFoundError extends ApplicationError {
+  readonly code = FailureCode.WalletNotFound;
+
+  constructor(walletId: string) {
+    super(`Wallet ${walletId} does not exist`);
+  }
+}
+
 export class ResourceNotFoundError extends ApplicationError {
   readonly code = 'NOT_FOUND';
 

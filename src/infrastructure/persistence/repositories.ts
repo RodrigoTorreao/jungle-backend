@@ -6,14 +6,21 @@
  * a fixed order — never implicit dirty-checking at flush time. Reads bypass the identity map so a
  * row re-read after an explicit write is never served stale from memory.
  */
-import { type EntityManager, LockMode } from '@mikro-orm/postgresql';
-import { ConcurrencyConflictError, WalletAlreadyExistsError } from '../../application/errors';
+import { type EntityManager, IsolationLevel, LockMode } from '@mikro-orm/postgresql';
+import {
+  ConcurrencyConflictError,
+  TransientInfrastructureError,
+  WalletAlreadyExistsError,
+} from '../../application/errors';
 import type {
   InboxRepository,
   LedgerPage,
   LedgerRepository,
   OutboxRepository,
+  ReconciliationReader,
+  ReconciliationSnapshot,
   TransactionScope,
+  WagerTransactionReader,
   WagerTransactionRepository,
   WalletReader,
   WalletRepository,
@@ -21,6 +28,7 @@ import type {
 import type { Clock } from '../../application/ports/system';
 import type { InboxMessage } from '../../domain/messaging/inbox-message';
 import type { OutboxMessage } from '../../domain/messaging/outbox-message';
+import { FailureCode } from '../../domain/wagering/failure-code';
 import type { WagerTransaction } from '../../domain/wagering/wager-transaction';
 import {
   WagerTransactionKind,
@@ -96,7 +104,23 @@ export class MikroOrmWagerTransactionRepository implements WagerTransactionRepos
   ) {}
 
   async insert(transaction: WagerTransaction): Promise<void> {
-    await this.em.insert(WagerTransactionRecord, transactionToRecord(transaction));
+    try {
+      await this.em.insert(WagerTransactionRecord, transactionToRecord(transaction));
+    } catch (error) {
+      // Two writers on *different* wallets raced for the same key or external id: the loser
+      // retries the whole transaction and then sees the winner (replay or conflict).
+      if (
+        isUniqueViolation(error, 'uq_tx_idempotency') ||
+        isUniqueViolation(error, 'uq_tx_external_id')
+      ) {
+        throw new TransientInfrastructureError(
+          FailureCode.ConcurrencyConflict,
+          `Concurrent submission of ${transaction.providerId}/${transaction.externalTransactionId}`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
   }
 
   async update(transaction: WagerTransaction): Promise<void> {
@@ -224,6 +248,98 @@ export class MikroOrmWalletReader implements WalletReader {
     return {
       entries: records.slice(0, page.limit).map(ledgerEntryToDomain),
       hasMore: records.length > page.limit,
+    };
+  }
+}
+
+export class MikroOrmWagerTransactionReader implements WagerTransactionReader {
+  constructor(private readonly em: EntityManager) {}
+
+  async findById(id: string): Promise<WagerTransaction | undefined> {
+    const record = await this.em.fork().findOne(WagerTransactionRecord, { id }, fresh);
+    return record ? transactionToDomain(record) : undefined;
+  }
+
+  async findByExternalId(
+    providerId: string,
+    externalTransactionId: string,
+  ): Promise<WagerTransaction | undefined> {
+    const record = await this.em
+      .fork()
+      .findOne(WagerTransactionRecord, { providerId, externalTransactionId }, fresh);
+    return record ? transactionToDomain(record) : undefined;
+  }
+}
+
+interface ReconciliationRow {
+  wallet_id: string;
+  currency: string;
+  stored_balance: string;
+  calculated_balance: string;
+  difference: string;
+  balances_match: boolean;
+  latest_entry_matches: boolean;
+  checked_entries: number;
+}
+
+/**
+ * Rebuilds the balance from the full ledger inside a READ ONLY, REPEATABLE READ transaction:
+ * wallet and entries come from the same snapshot, and no lock blocks concurrent writers.
+ * Every comparison runs in PostgreSQL `numeric` — nothing passes through a JS number.
+ */
+export class MikroOrmReconciliationReader implements ReconciliationReader {
+  constructor(private readonly em: EntityManager) {}
+
+  async snapshot(walletId: string): Promise<ReconciliationSnapshot | undefined> {
+    const rows = await this.em.fork().transactional(
+      (em) =>
+        em.execute<ReconciliationRow[]>(
+          `WITH ledger AS (
+             SELECT COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount ELSE -amount END), 0)
+                      AS calculated,
+                    COUNT(*)::int AS entries
+               FROM wallet_ledger_entries
+              WHERE wallet_id = ?
+           ),
+           latest AS (
+             SELECT balance_after, wallet_version
+               FROM wallet_ledger_entries
+              WHERE wallet_id = ?
+              ORDER BY wallet_version DESC
+              LIMIT 1
+           )
+           SELECT w.id AS wallet_id,
+                  w.currency,
+                  w.balance_amount::text AS stored_balance,
+                  ledger.calculated::numeric(20,2)::text AS calculated_balance,
+                  (w.balance_amount - ledger.calculated)::numeric(20,2)::text AS difference,
+                  w.balance_amount = ledger.calculated AS balances_match,
+                  CASE
+                    WHEN latest.wallet_version IS NULL THEN w.version = 1
+                    ELSE latest.balance_after = w.balance_amount AND latest.wallet_version = w.version
+                  END AS latest_entry_matches,
+                  ledger.entries AS checked_entries
+             FROM wallets w
+            CROSS JOIN ledger
+             LEFT JOIN latest ON TRUE
+            WHERE w.id = ?`,
+          [walletId, walletId, walletId],
+        ),
+      { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true },
+    );
+    const row = rows[0];
+    if (row === undefined) {
+      return undefined;
+    }
+    return {
+      walletId: row.wallet_id,
+      currency: row.currency,
+      storedBalance: row.stored_balance,
+      calculatedBalance: row.calculated_balance,
+      difference: row.difference,
+      balancesMatch: row.balances_match,
+      latestEntryMatches: row.latest_entry_matches,
+      checkedEntries: row.checked_entries,
     };
   }
 }

@@ -6,13 +6,22 @@ import {
   Module,
   type OnApplicationShutdown,
 } from '@nestjs/common';
-import { UNIT_OF_WORK, WALLET_READER } from '../../application/ports/persistence';
+import {
+  RECONCILIATION_READER,
+  UNIT_OF_WORK,
+  WAGER_TRANSACTION_READER,
+  WALLET_READER,
+} from '../../application/ports/persistence';
 import { CLOCK, type Clock, ID_GENERATOR } from '../../application/ports/system';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { SystemClock, UuidV7Generator } from '../system/system-adapters';
 import { createOrmOptions } from './mikro-orm.config';
 import { MikroOrmUnitOfWork } from './mikro-orm-unit-of-work';
-import { MikroOrmWalletReader } from './repositories';
+import {
+  MikroOrmReconciliationReader,
+  MikroOrmWagerTransactionReader,
+  MikroOrmWalletReader,
+} from './repositories';
 
 @Global()
 @Module({})
@@ -48,8 +57,26 @@ export class DatabaseModule implements OnApplicationShutdown {
           inject: [MikroORM],
           useFactory: (orm: MikroORM) => new MikroOrmWalletReader(orm.em),
         },
+        {
+          provide: WAGER_TRANSACTION_READER,
+          inject: [MikroORM],
+          useFactory: (orm: MikroORM) => new MikroOrmWagerTransactionReader(orm.em),
+        },
+        {
+          provide: RECONCILIATION_READER,
+          inject: [MikroORM],
+          useFactory: (orm: MikroORM) => new MikroOrmReconciliationReader(orm.em),
+        },
       ],
-      exports: [MikroORM, CLOCK, ID_GENERATOR, UNIT_OF_WORK, WALLET_READER],
+      exports: [
+        MikroORM,
+        CLOCK,
+        ID_GENERATOR,
+        UNIT_OF_WORK,
+        WALLET_READER,
+        WAGER_TRANSACTION_READER,
+        RECONCILIATION_READER,
+      ],
     };
   }
 
