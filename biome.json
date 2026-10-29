@@ -1,0 +1,129 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!**/node_modules", "!**/bun.lock", "!**/*.md"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": true
+    },
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "useImportType": "off",
+        "noNonNullAssertion": "error",
+        "useConst": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/domain/**", "src/application/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "parseFloat": "Money must never go through floating point. Use Money.from().",
+                  "parseInt": "Money must never go through number. Use Money.from() / BigInt.",
+                  "Number": "Money must never go through number. Use Money / bigint.",
+                  "Math": "Use Money operations instead of floating point math."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/domain/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@nestjs/*",
+                      "@mikro-orm/*",
+                      "@aws-sdk/*",
+                      "zod",
+                      "pino",
+                      "nestjs-pino"
+                    ],
+                    "message": "The domain layer must stay framework-free (see ARCHITECTURE §3)."
+                  },
+                  {
+                    "group": ["**/application/**", "**/infrastructure/**", "**/interfaces/**"],
+                    "message": "The domain layer must not depend on outer layers."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/application/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@mikro-orm/*",
+                      "@aws-sdk/*",
+                      "**/infrastructure/**",
+                      "**/interfaces/**"
+                    ],
+                    "message": "The application layer talks to infrastructure only through ports."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/**/*.module.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noStaticOnlyClass": "off"
+          }
+        }
+      }
+    }
+  ]
+}

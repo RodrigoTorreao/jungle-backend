@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.4.4
+
+jobs:
+  static:
+    name: Typecheck, lint, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bunx biome ci .
+      - run: bun run test:unit
+
+  integration:
+    name: Integration and concurrency tests (PostgreSQL + LocalStack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: cp .env.example .env
+      - name: Start infrastructure
+        run: docker compose up -d --wait
+      - name: Migrations apply and revert on the real database
+        run: |
+          bun run migration:up
+          bun run migration:down --all
+          bun run migration:up
+      - run: bun run test:integration
+      - run: bun run test:concurrency
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
