@@ -107,14 +107,14 @@ flowchart LR
 
 **Objetivo:** entrada assíncrona e publicação de eventos à prova de crash.
 
-- [ ] **S4-01** Adapter SQS (client, long polling, `AbortController` para shutdown)
-- [ ] **S4-02** Consumer `wager-transactions.fifo` → mesmo use case com contexto de inbox `(consumerName, messageId)` na mesma transação [RF-Q01, RF-Q02]
-- [ ] **S4-03** `DeleteMessage` só após commit; classificação negócio/transitório/permanente; backoff via `ChangeMessageVisibility`; DLQ por redrive e envio explícito para erros permanentes [RF-Q03..RF-Q05]
-- [ ] **S4-04** Shutdown gracioso do consumer: para de receber, conclui em andamento, devolve visibilidade (`ChangeMessageVisibility 0`) do que não começou [RF-Q06]
-- [ ] **S4-05** Outbox publisher: `FOR UPDATE SKIP LOCKED`, `SendMessageBatch`, `MessageDeduplicationId = eventId`, `scheduleRetry` em falha [RF-Q07]
-- [ ] **S4-06** Worker `PENDING_REFERENCE`: varredura com backoff, TTL/limite, "nudge" quando a referência chega, `REJECTED REFERENCE_NOT_FOUND` + evento ao esgotar [RF-Q09, RN-11]
-- [ ] **S4-07** `FaultInjector` (porta no-op em produção) com pontos `before-commit`, `after-commit-before-ack`, `after-commit-before-publish-mark`
-- [ ] **S4-08** Testes: inbox/redelivery [T-I03], dois publishers [T-I04, T-C06], retry/DLQ [T-I05], atomicidade com falha injetada [T-I02], referência fora de ordem [T-C07], crash após commit e antes do ack [T-C05]
+- [x] **S4-01** Adapter SQS (client, long polling, `AbortController` para shutdown)
+- [x] **S4-02** Consumer `wager-transactions.fifo` → mesmo use case com contexto de inbox `(consumerName, messageId)` na mesma transação [RF-Q01, RF-Q02]
+- [x] **S4-03** `DeleteMessage` só após commit; classificação negócio/transitório/permanente; backoff via `ChangeMessageVisibility`; DLQ por redrive e envio explícito para erros permanentes [RF-Q03..RF-Q05]
+- [x] **S4-04** Shutdown gracioso do consumer: para de receber, conclui em andamento, devolve visibilidade (`ChangeMessageVisibility 0`) do que não começou [RF-Q06]
+- [x] **S4-05** Outbox publisher: `FOR UPDATE SKIP LOCKED`, `SendMessageBatch`, `MessageDeduplicationId = eventId`, `scheduleRetry` em falha [RF-Q07]
+- [x] **S4-06** Worker `PENDING_REFERENCE`: varredura com backoff, TTL/limite, "nudge" quando a referência chega, `REJECTED REFERENCE_NOT_FOUND` + evento ao esgotar [RF-Q09, RN-11]
+- [x] **S4-07** `FaultInjector` (porta no-op em produção) com pontos `before-commit`, `after-commit-before-ack`, `after-commit-before-publish-mark`
+- [x] **S4-08** Testes: inbox/redelivery [T-I03], dois publishers [T-I04, T-C06], retry/DLQ [T-I05], atomicidade com falha injetada [T-I02], referência fora de ordem [T-C07], crash após commit e antes do ack [T-C05]
 
 **Critério de saída:** matar o processo em qualquer ponto de injeção nunca duplica efeito nem perde evento.
 

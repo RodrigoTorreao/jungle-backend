@@ -99,3 +99,13 @@ Formato:
 **Contexto:** a reconciliação precisa mostrar diferenças possivelmente negativas, e `Money.from` só aceita valores de contrato (não negativos).
 **Decisão:** soma, diferença e comparações calculadas no próprio SQL (`numeric`), num snapshot `REPEATABLE READ READ ONLY`; a aplicação só monta a resposta, sem criar um `Money` "com sinal" para diagnóstico.
 **Consequência:** nenhuma aritmética monetária fora do banco ou do `Money`; a divergência é demonstrada num teste que desliga os triggers como superusuário. **Ref:** `MikroOrmReconciliationReader`.
+
+### DL-018 · 2026-10-29 · Inbox sem caminho especial para duplicatas
+**Contexto:** a primeira ideia era o consumer consultar a inbox antes de tudo e, se a mensagem já existisse, só dar ack.
+**Decisão:** a inbox é gravada (`INSERT … ON CONFLICT DO NOTHING`) dentro da mesma transação, antes do lock da wallet; uma duplicata simplesmente segue para a busca por idempotency key e vira um replay normal. Só um `messageId` repetido com outro payload é tratado à parte (DLQ).
+**Consequência:** um único caminho de código para HTTP e SQS; uma cópia concorrente bloqueia no índice da inbox até a primeira confirmar e então vira replay. **Ref:** `ProcessWagerTransactionUseCase.receiveInbox`.
+
+### DL-019 · 2026-10-29 · Crash simulado dentro do processo
+**Contexto:** o critério de saída do Sprint 4 é "matar o processo em qualquer ponto não duplica efeito nem perde evento", mas sinais POSIX não são confiáveis no Windows e o multi-processo é do Sprint 5.
+**Decisão:** o `FaultInjector` em modo `throw` lança `SimulatedCrashError`, que consumer e publisher tratam como morte: nada de ack, nada de liberar visibilidade, nada de marcar a outbox. Isso reproduz exatamente o estado deixado por um `kill -9` (commit feito, mensagem em voo, linhas não marcadas). O modo `kill` (SIGKILL de verdade) fica pronto para os testes multi-processo.
+**Consequência:** os três pontos de injeção são testados de forma determinística em segundos. **Ref:** `wager-consumer.test.ts`, `outbox-publisher.test.ts`.

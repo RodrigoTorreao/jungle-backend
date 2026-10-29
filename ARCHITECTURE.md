@@ -1,18 +1,18 @@
 # ARCHITECTURE — Distributed Wagering Processor
 
-> **Status:** v0.3. Sprints 0–3 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
+> **Status:** v0.4. Sprints 0–4 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
 
 | Seção | Implementado | Planejado |
 |---|---|---|
 | §4 Modelo de domínio | tudo (Money, Wallet, ledger, WagerTransaction, WagerPolicy, inbox/outbox, eventos) | — |
 | §5 Schema e garantias | tudo, com testes de violação via SQL | — |
 | §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE, retry de transitórios; cenário 100 vs 80+80 testado via HTTP e via pools independentes | ≥ 3 processos (Sprint 5) |
-| §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay, replay/conflito em `POST /wagering/transactions`, corrida de chave entre wallets | inbox SQS (Sprint 4) |
-| §8 Fluxos | submissão HTTP (§8.1), criação de wallet e reconciliação (§8.5) | SQS, outbox publisher, worker de pendências e "nudge" (Sprint 4) |
+| §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay, replay/conflito por HTTP e SQS, inbox `(consumerName, messageId)` na mesma transação, corrida de chave entre wallets | — |
+| §8 Fluxos | todos: submissão HTTP (§8.1), consumer SQS com DLQ e shutdown (§8.2), outbox publisher (§8.3), worker de pendências com nudge (§8.4), wallet e reconciliação (§8.5) | `SIGTERM` real em container (Sprint 5) |
 | §9 Contratos HTTP | todos os endpoints de negócio do desafio; mapeamento completo (200/201/202/400/401/403/404/409/422/500/503) | `/health/ready`, `/metrics` (Sprint 5) |
 | §10 Observabilidade | logs JSON com `correlationId`, campos sensíveis ocultos, `/health/live`; contador `wallet_reconciliation_divergences_total` (registry próprio) | `/metrics`, demais métricas, `/health/ready`, demais campos de contexto (Sprint 5) |
 | §11 Autenticação | ponto de extensão (porta, guard global, `@Public()`, `AUTH_MODE=disabled`) | adaptador Keycloak (Sprint 6) |
-| §12 Testes | unidade, integração com PostgreSQL real, corrida de criação de wallet | LocalStack nos testes e `FaultInjector` (Sprint 4); ≥3 instâncias (Sprint 5); carga (Sprint 6) |
+| §12 Testes | unidade, integração com PostgreSQL e LocalStack reais (filas próprias por arquivo), concorrência (T-C01..T-C03, T-C05..T-C07), `FaultInjector` em modo `throw` | ≥3 processos e `kill -9` real (Sprint 5); carga (Sprint 6) |
 > Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Enunciado: [Desafio.md](Desafio.md)
 > Como chegamos a cada decisão (achados, mudanças de rumo): [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
@@ -581,9 +581,16 @@ flowchart TD
     B1 -- "permanente: JSON inválido, schema inválido, OPENING, WALLET_NOT_FOUND, messageId reutilizado com outro payload" --> DLQ["SendMessage para DLQ com motivo, depois DeleteMessage"]
 ```
 
-Princípio: **o que pode ser representado no domínio vira `REJECTED` auditável e recebe ack; o que não pode vai para a DLQ, que funciona como trilha de auditoria.**
+Princípio: **o que pode ser representado no domínio vira `REJECTED` auditável e recebe ack; o que não pode vai para a DLQ, que funciona como trilha de auditoria.** Erros desconhecidos são tratados como transitórios: o `maxReceiveCount` da redrive policy é o teto.
 
-`SIGTERM`: o loop para de chamar `ReceiveMessage` (abort do long poll), mensagens do lote ainda não iniciadas recebem `ChangeMessageVisibility 0`, as em andamento terminam dentro de `SHUTDOWN_GRACE_MS` (menor que o `stop_grace_period` do Compose). Readiness responde 503 assim que o shutdown começa.
+Detalhes de implementação (`WagerTransactionConsumer`):
+- A chave da inbox é o `messageId` **do corpo** (atribuído pelo produtor e estável entre reenvios), não o `MessageId` do SQS, que muda a cada envio (I-17). O `payloadHash` da inbox é o SHA-256 do JSON canônico de `{type, data}`.
+- A inbox é gravada antes do lock da wallet (ordem de locks) e uma duplicata não tem caminho especial: segue para a busca por idempotency key e vira replay, com ack.
+- Lote recebido: grupos FIFO (wallets) em paralelo, mensagens de um grupo em sequência; depois de uma mensagem que vai ser repetida, o resto do grupo é liberado (`visibility 0`) para não furar a ordem.
+- Backoff de transitórios: `SQS_RETRY_BASE_SECONDS · 2^(receiveCount−1)`, teto `SQS_RETRY_MAX_SECONDS`, via `ChangeMessageVisibility`.
+- Mensagens para a DLQ levam `failureCode`, `failureReason` e `sourceQueue` como atributos, e o corpo original intacto.
+
+`SIGTERM`: o loop para de chamar `ReceiveMessage` (abort do long poll), mensagens do lote ainda não iniciadas recebem `ChangeMessageVisibility 0`, as em andamento terminam dentro de `SHUTDOWN_GRACE_MS` (menor que o `stop_grace_period` do Compose). Os workers param em `beforeApplicationShutdown`, antes de o pool do banco e o client SQS fecharem. Readiness respondendo 503 durante o shutdown chega com o `/health/ready` (Sprint 5).
 
 ### 8.3 Outbox publisher (vários publishers)
 
@@ -610,6 +617,7 @@ sequenceDiagram
 - Falha de publish → `scheduleRetry`: `attempts + 1`, `next_attempt_at = now + min(1s * 2^attempts, 5min)`, sem jitter (backoff determinístico no domínio; publishers concorrentes já se evitam com `SKIP LOCKED`). Nunca descarta: um evento confirmado não se perde (métrica e alerta para `attempts` alto).
 - Cenário do desafio (commit → crash → outra instância publica → duplicata segura) é coberto porque a outbox é gravada na transação financeira e a publicação é at-least-once com `eventId` estável.
 - Ordem: publishers concorrentes podem inverter eventos da mesma wallet. Consumidores ordenam por `walletVersion` (presente em `WalletBalanceChanged`). Ver limitações.
+- Claim em ordem `occurred_at, id`, lote de `OUTBOX_BATCH_SIZE`, `SendMessageBatch` em blocos de 10 com `MessageGroupId = aggregateId` e atributos `eventType`, `eventVersion`, `correlationId`. Falhas parciais do lote viram retry só das mensagens recusadas.
 
 ### 8.4 Referência fora de ordem (`PENDING_REFERENCE`)
 
@@ -632,7 +640,9 @@ sequenceDiagram
     Note over WK,DB: se a referência nunca chegar, após 10 tentativas ou 15 min, r1 vira REJECTED REFERENCE_NOT_FOUND com evento
 ```
 
-Backoff: `1s, 2s, 4s … teto 5 min`, no máximo **10 tentativas ou TTL de 15 min** (o que vier primeiro), configuráveis. Justificativa: provedores normalmente reenviam a operação original em segundos/minutos; manter pendências por mais tempo distorce a reconciliação e o saldo exibido ao jogador. O nudge torna a latência independente do backoff no caso comum.
+Backoff: `1s, 2s, 4s … teto 5 min`, no máximo **10 tentativas ou TTL de 15 min** (o que vier primeiro), configuráveis.
+
+O worker (`ReprocessPendingReferencesUseCase`) lê os candidatos vencidos sem lock e trata cada um numa transação própria, na ordem de locks de sempre: `wallet FOR UPDATE` → `transação FOR UPDATE` → re-checagem (ainda pendente e vencida?). Vários workers podem rodar ao mesmo tempo; quem chega depois só encontra a transação resolvida e pula. O nudge acorda apenas pendências **da mesma wallet** (as de outra wallet seriam rejeitadas por `REFERENCE_MISMATCH` de qualquer jeito) e roda também quando o próprio worker resolve uma transação, o que destrava cadeias como `ROLLBACK` de um `REFUND` pendente. Eventos emitidos pelo worker usam `correlationId = idempotencyKey` da transação e `causationId = pending-reference:<id>`. Justificativa: provedores normalmente reenviam a operação original em segundos/minutos; manter pendências por mais tempo distorce a reconciliação e o saldo exibido ao jogador. O nudge torna a latência independente do backoff no caso comum.
 
 ### 8.5 Criação de wallet e reconciliação
 
@@ -807,6 +817,8 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 | I-14 | `providerId = "internal"` é reservado → 400 `VALIDATION_ERROR` | identifica o `OPENING`; sem a regra, o CHECK do banco viraria um 500 |
 | I-15 | Consulta por id interno de transação de outro provider → 404; pela rota `/providers/:providerId/...` com provider alheio → 403 | não revelar a existência de transações alheias por id; a rota por provider já declara de quem é |
 | I-16 | `REFUND`/`ROLLBACK` que chega antes da referência e cuja referência depois chega: fica `PENDING_REFERENCE` até o worker (Sprint 4) | a resolução imediata ("nudge") é parte do worker |
+| I-17 | A chave da inbox é o `messageId` do corpo da mensagem, não o `MessageId` do SQS | o do corpo é do produtor e estável entre reenvios; o do SQS muda a cada envio e não deduplicaria uma mensagem reenviada |
+| I-18 | Conflito de idempotência (mesma chave, payload diferente) e `WALLET_NOT_FOUND` vindos da fila vão para a DLQ, não recebem ack silencioso | não há agregado onde registrar a rejeição; a DLQ é a trilha de auditoria (princípio do §8.2) |
 
 ---
 
@@ -814,14 +826,14 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 
 | Falha | Comportamento | Teste |
 |---|---|---|
-| Processo morre antes do COMMIT | rollback total; HTTP sem resposta → provedor reenvia; SQS reentrega | T-I02 |
-| Processo morre após COMMIT, antes do ack | reentrega → inbox conflita → só ack | T-C05 |
-| Processo morre após COMMIT, antes de publicar | outbox pendente → outra instância publica | T-I06, T-C06 |
-| Publisher morre após publicar, antes de marcar | republica; dedup por `eventId` | T-C06 |
+| Processo morre antes do COMMIT | rollback total, inclusive inbox e outbox; HTTP sem resposta → provedor reenvia; SQS reentrega | T-I02 (`wager-consumer.test.ts`) |
+| Processo morre após COMMIT, antes do ack | reentrega → inbox duplicada → replay → ack | T-C05 (`wager-consumer.test.ts`) |
+| Processo morre após COMMIT, antes de publicar | outbox pendente → outra instância publica | `outbox-publisher.test.ts` |
+| Publisher morre após publicar, antes de marcar | republica com o mesmo `eventId` | `outbox-publisher.test.ts`; dois publishers: T-C06 |
 | PostgreSQL indisponível | 503 + `Retry-After`; consumer sem ack; readiness 503 | S5-05 |
 | SQS indisponível | HTTP continua; outbox acumula e drena; consumer em backoff | S5-05 |
 | Mesma mensagem em paralelo em N instâncias | `INSERT inbox` bloqueia no índice único até a primeira confirmar | T-C01, T-C04 |
-| Referência chega depois | `PENDING_REFERENCE` + worker + nudge | T-C07 |
+| Referência chega depois | `PENDING_REFERENCE` + nudge + worker; cadeias resolvem em ordem; vários workers sem duplicar | T-C07 (`pending-references.test.ts`, `workers-e2e.test.ts`) |
 | Lock timeout / deadlock | retry limitado → 503 / backoff na fila | T-C02 |
 | `SIGTERM` | drena HTTP, conclui ou devolve mensagens, encerra workers e pool | S5-08 |
 

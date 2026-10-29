@@ -7,7 +7,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 - Requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md)
 - Diário de decisões: [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
-> **Status:** Sprints 0–3 concluídos — domínio puro, schema com as garantias financeiras no banco, API de wallets e o processamento de apostas por HTTP (`POST /wagering/transactions`, consultas e reconciliação), idempotente e testado sob concorrência real. Mensageria (SQS, outbox, pendências) chega no Sprint 4.
+> **Status:** Sprints 0–4 concluídos — domínio, schema com as garantias financeiras, API HTTP completa e mensageria: consumer SQS com inbox e DLQ, outbox publisher e worker de referências fora de ordem, tudo testado contra PostgreSQL e LocalStack reais. Sprint 5: múltiplas instâncias, métricas e readiness.
 
 ## Pré-requisitos
 
@@ -30,6 +30,23 @@ O Compose cria:
 
 - **PostgreSQL** com os roles `wallet_owner` (dono do schema, roda migrations) e `wallet_app` (runtime, sem `DELETE`/`TRUNCATE`/DDL) e o banco `wagering`.
 - **LocalStack** com as filas `wager-transactions.fifo`, `wager-transactions-dlq.fifo` (redrive com `maxReceiveCount=5`) e `wagering-events.fifo`.
+
+## Papéis do processo
+
+A mesma aplicação roda qualquer combinação de papéis via `APP_ROLES` (lista separada por vírgula, ou `all`):
+
+| Papel | O que faz |
+|---|---|
+| `api` | endpoints HTTP (sempre sobem `/health/*`) |
+| `consumer` | consome `wager-transactions.fifo` (inbox, DLQ, backoff) |
+| `outbox-publisher` | publica a outbox em `wagering-events.fifo` |
+| `pending-reference-worker` | resolve transações `PENDING_REFERENCE` |
+
+```bash
+APP_ROLES=all bun run dev
+```
+
+Variáveis de mensageria e workers estão em `.env.example` (`SQS_*`, `OUTBOX_*`, `PENDING_REFERENCE_*`).
 
 ## Comandos
 
