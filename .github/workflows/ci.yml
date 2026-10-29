@@ -71,6 +71,41 @@ jobs:
             -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"ci-1\",\"playerId\":\"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1\",\"walletId\":\"$wallet_id\",\"roundId\":\"r\",\"gameId\":\"g\",\"kind\":\"BET\",\"money\":{\"amount\":\"25.00\",\"currency\":\"BRL\"}}"
           curl -fsS http://localhost:8080/wallets/$wallet_id | grep -q '"amount":"75.00"'
           test "$(docker compose ps app --format '{{.Health}}' | grep -c healthy)" = 3
+      # Short, but through nginx and all 3 replicas: exits non-zero if any money went missing or
+      # was duplicated (balance vs acknowledged requests, ledger, one row per SQS message).
+      - name: Load smoke with correctness checks (docs/LOAD_TEST.md)
+        run: |
+          mkdir -p load/results && chmod 777 load/results # the image runs as user "bun"
+          docker compose --profile app --profile load run --rm \
+            -e PROMETHEUS_URL= -e LOAD_DURATION_SECONDS=10 -e LOAD_WARMUP_SECONDS=2 \
+            -e LOAD_VUS=16 -e LOAD_WALLETS=50 -e LOAD_SQS_MESSAGES=500 -e LOAD_SQS_WALLETS=50 \
+            loadgen
+      - name: Keycloak end-to-end (client credentials, roles, provider claim)
+        env:
+          AUTH_MODE: keycloak
+        run: |
+          docker compose --profile app --profile auth up -d --wait
+          token() {
+            curl -fsS http://localhost:8180/realms/wagering/protocol/openid-connect/token \
+              -d grant_type=client_credentials -d client_id="$1" -d client_secret="$1-secret" |
+              sed -E 's/.*"access_token":"([^"]+)".*/\1/'
+          }
+          ops=$(token backoffice); provider=$(token provider-a); other=$(token provider-b)
+          status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          body='{"playerId":"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a2","initialBalance":{"amount":"10.00","currency":"BRL"}}'
+          test "$(status -X POST localhost:8080/wallets -H 'content-type: application/json' -d "$body")" = 401
+          test "$(status -X POST localhost:8080/wallets -H "authorization: Bearer $provider" -H 'content-type: application/json' -d "$body")" = 403
+          wallet=$(curl -fsS -X POST localhost:8080/wallets -H "authorization: Bearer $ops" \
+            -H 'content-type: application/json' -d "$body")
+          wallet_id=$(echo "$wallet" | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          bet() {
+            status -X POST localhost:8080/wagering/transactions -H "authorization: Bearer $1" \
+              -H 'content-type: application/json' -H "idempotency-key: provider-a:$2" \
+              -d "{\"providerId\":\"provider-a\",\"externalTransactionId\":\"$2\",\"playerId\":\"0192f28f-5dc0-7d58-bdb2-814ad6a0f4a2\",\"walletId\":\"$wallet_id\",\"roundId\":\"r\",\"gameId\":\"g\",\"kind\":\"BET\",\"money\":{\"amount\":\"1.00\",\"currency\":\"BRL\"}}"
+          }
+          test "$(bet "$provider" auth-1)" = 200
+          test "$(bet "$other" auth-2)" = 403
+          test "$(status localhost:8080/health/ready)" = 200
       - name: Graceful stop of every replica
         run: docker compose --profile app stop app
       - name: Container logs
