@@ -89,15 +89,15 @@ flowchart LR
 
 **Objetivo:** `POST /wagering/transactions` correto sob concorrência e idempotente.
 
-- [ ] **S3-01** Use case `ProcessWagerTransaction`: lock da wallet → checagem de idempotência → resolução de referência → política de domínio → persistência (tx, wallet, ledger, outbox) numa transação [RF-Q01]
-- [ ] **S3-02** Retry limitado para erros transitórios de banco (`40P01`, `55P03`, `40001`, conexão) e para corrida de `23505` em idempotência
-- [ ] **S3-03** Snapshot do resultado (`result_balance_amount`) para replay fiel [RN-10]
-- [ ] **S3-04** Controller + DTOs (zod) + `Idempotency-Key` obrigatório + rejeição de `OPENING` [RF-H06, RN-13]
-- [ ] **S3-05** Filtro de exceções com `application/problem+json`, `code`, `retryable` e o mapeamento HTTP do ARCHITECTURE [RF-H09]
-- [ ] **S3-06** Consultas `GET /wagering/transactions/:id` e `GET /providers/:providerId/wagering/transactions/:externalId` [RF-H04, RF-H05]
-- [ ] **S3-07** Reconciliação `POST /wallets/:id/reconciliation` (snapshot `REPEATABLE READ`, log + métrica em divergência) [RF-H07]
-- [ ] **S3-08** Testes de integração de todas as regras de negócio contra o banco real (inclui reversões, overdraw de reversão, referência de outro round/player)
-- [ ] **S3-09** Concorrência: T-C01 (50x a mesma aposta), T-C02 (100 vs 80+80), T-C03 (wallets distintas) via HTTP real e via use case direto com pools independentes
+- [x] **S3-01** Use case `ProcessWagerTransaction`: lock da wallet → checagem de idempotência → resolução de referência → política de domínio → persistência (tx, wallet, ledger, outbox) numa transação [RF-Q01]
+- [x] **S3-02** Retry limitado para erros transitórios de banco (`40P01`, `55P03`, `40001`, conexão) e para corrida de `23505` em idempotência
+- [x] **S3-03** Snapshot do resultado (`result_balance_amount`) para replay fiel [RN-10]
+- [x] **S3-04** Controller + DTOs (zod) + `Idempotency-Key` obrigatório + rejeição de `OPENING` [RF-H06, RN-13]
+- [x] **S3-05** Filtro de exceções com `application/problem+json`, `code`, `retryable` e o mapeamento HTTP do ARCHITECTURE [RF-H09]
+- [x] **S3-06** Consultas `GET /wagering/transactions/:id` e `GET /providers/:providerId/wagering/transactions/:externalId` [RF-H04, RF-H05]
+- [x] **S3-07** Reconciliação `POST /wallets/:id/reconciliation` (snapshot `REPEATABLE READ`, log + métrica em divergência) [RF-H07]
+- [x] **S3-08** Testes de integração de todas as regras de negócio contra o banco real (inclui reversões, overdraw de reversão, referência de outro round/player)
+- [x] **S3-09** Concorrência: T-C01 (50x a mesma aposta), T-C02 (100 vs 80+80), T-C03 (wallets distintas) via HTTP real e via use case direto com pools independentes
 
 **Critério de saída:** cenário obrigatório da seção 8 do desafio passa de forma determinística em 100 execuções seguidas.
 
@@ -143,7 +143,7 @@ flowchart LR
 
 - [ ] **S6-01** Teste de carga `bun run test:load` (cenários: wallets uniformes, hot wallet, ingestão SQS) + `docs/LOAD_TEST.md` com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos e outbox lag [D-01]
 - [ ] **S6-02** Prometheus + Grafana provisionados (profile `observability`) com dashboard [D-03]
-- [ ] **S6-03** Keycloak no Compose com realm importado; `JwtAuthGuard` (JWKS via `jose`), `ProviderIdentityPort`, `providerId` do token × body, role de backoffice para wallets/reconciliação; `AUTH_MODE=disabled` para testes [D-04] — o ponto de extensão (porta, guard global com `@Public()`, `AUTH_MODE`, 401) já existe desde o Sprint 2; falta só o adaptador Keycloak e a autorização nos casos de uso
+- [ ] **S6-03** Keycloak no Compose com realm importado; `JwtAuthGuard` (JWKS via `jose`), `ProviderIdentityPort`, `providerId` do token × body, role de backoffice para wallets/reconciliação; `AUTH_MODE=disabled` para testes [D-04] — o ponto de extensão (porta, guard global com `@Public()`, `AUTH_MODE`, 401) já existe desde o Sprint 2; a checagem provider do token × payload também já existe (Sprint 3, `assertMayActFor`); falta o adaptador Keycloak e a exigência do role de backoffice em wallets/reconciliação
 - [ ] **S6-04** Job periódico de reconciliação por amostragem [D-07]
 - [ ] **S6-05** OpenTelemetry (traces) — somente se a instrumentação funcionar bem sob Bun [D-05]
 - [ ] **S6-06** *(stretch)* Ledger de partidas dobradas com conta da casa por provedor [D-06]

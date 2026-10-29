@@ -7,7 +7,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 - Requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md)
 - Diário de decisões: [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
-> **Status:** Sprints 0–2 concluídos — domínio puro, schema com as garantias financeiras no banco e API de wallets (`POST /wallets`, `GET /wallets/:id`, `GET /wallets/:id/ledger`). O processamento de apostas (`POST /wagering/transactions`) chega no Sprint 3.
+> **Status:** Sprints 0–3 concluídos — domínio puro, schema com as garantias financeiras no banco, API de wallets e o processamento de apostas por HTTP (`POST /wagering/transactions`, consultas e reconciliação), idempotente e testado sob concorrência real. Mensageria (SQS, outbox, pendências) chega no Sprint 4.
 
 ## Pré-requisitos
 

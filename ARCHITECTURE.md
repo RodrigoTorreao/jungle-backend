@@ -1,16 +1,16 @@
 # ARCHITECTURE — Distributed Wagering Processor
 
-> **Status:** v0.2. Sprints 0–2 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
+> **Status:** v0.3. Sprints 0–3 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
 
 | Seção | Implementado | Planejado |
 |---|---|---|
 | §4 Modelo de domínio | tudo (Money, Wallet, ledger, WagerTransaction, WagerPolicy, inbox/outbox, eventos) | — |
 | §5 Schema e garantias | tudo, com testes de violação via SQL | — |
-| §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE | retry de transitórios e cenário 100 vs 80+80 (Sprint 3) |
-| §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay | fluxo de replay/conflito no endpoint (Sprint 3) |
-| §8 Fluxos | criação de wallet (§8.5) | submissão HTTP e reconciliação (Sprint 3); SQS, outbox publisher e pendências (Sprint 4) |
-| §9 Contratos HTTP | `POST /wallets`, `GET /wallets/:id`, ledger paginado, problem+json (400/401/404/409/500/503) | 200/202/422 de `POST /wagering/transactions` e consultas de transação (Sprint 3) |
-| §10 Observabilidade | logs JSON com `correlationId`, campos sensíveis ocultos, `/health/live` | métricas, `/health/ready`, demais campos de contexto (Sprint 5) |
+| §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE, retry de transitórios; cenário 100 vs 80+80 testado via HTTP e via pools independentes | ≥ 3 processos (Sprint 5) |
+| §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay, replay/conflito em `POST /wagering/transactions`, corrida de chave entre wallets | inbox SQS (Sprint 4) |
+| §8 Fluxos | submissão HTTP (§8.1), criação de wallet e reconciliação (§8.5) | SQS, outbox publisher, worker de pendências e "nudge" (Sprint 4) |
+| §9 Contratos HTTP | todos os endpoints de negócio do desafio; mapeamento completo (200/201/202/400/401/403/404/409/422/500/503) | `/health/ready`, `/metrics` (Sprint 5) |
+| §10 Observabilidade | logs JSON com `correlationId`, campos sensíveis ocultos, `/health/live`; contador `wallet_reconciliation_divergences_total` (registry próprio) | `/metrics`, demais métricas, `/health/ready`, demais campos de contexto (Sprint 5) |
 | §11 Autenticação | ponto de extensão (porta, guard global, `@Public()`, `AUTH_MODE=disabled`) | adaptador Keycloak (Sprint 6) |
 | §12 Testes | unidade, integração com PostgreSQL real, corrida de criação de wallet | LocalStack nos testes e `FaultInjector` (Sprint 4); ≥3 instâncias (Sprint 5); carga (Sprint 6) |
 > Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Enunciado: [Desafio.md](Desafio.md)
@@ -480,7 +480,7 @@ Cada transação toca **uma única wallet**, então não há ciclo entre wallets
 
 ### Retry de erros transitórios
 
-`40P01` (deadlock), `55P03` (lock timeout), `40001` (serialization), `OptimisticLockError` e perda de conexão → até 3 tentativas (classificação pelo SQLSTATE em `err.code`, ver §13.1) com backoff exponencial + jitter. Esgotado: HTTP 503 `Retry-After`; SQS não dá ack. `23505` em `uq_tx_idempotency` (duas instâncias inserindo a mesma key em wallets diferentes) → reexecuta uma vez e cai no caminho de replay/conflito.
+`40P01` (deadlock), `55P03` (lock timeout), `40001` (serialization), `OptimisticLockError` e perda de conexão → até 3 tentativas da transação inteira (classificação pelo SQLSTATE em `err.code`, ver §13.1), com espera determinística de 20 ms e 40 ms (`withTransientRetry`). Esgotado: HTTP 503 `Retry-After`; SQS não dá ack. `23505` em `uq_tx_idempotency` ou `uq_tx_external_id` (duas requisições com a mesma chave em wallets diferentes) é tratado como transitório: a perdedora reexecuta e cai no caminho de replay/conflito. Medido no teste de concorrência: 20 de 20 corridas passaram por esse caminho.
 
 **Hot wallet:** o lock serializa as operações dela; throughput por wallet ≈ 1 / latência da transação. Wallets diferentes não competem. Medido no teste de carga.
 
@@ -651,12 +651,14 @@ Backoff: `1s, 2s, 4s … teto 5 min`, no máximo **10 tentativas ou TTL de 15 mi
 | Processada (nova ou replay) | **200** | `{transactionId, status: PROCESSED, balance, idempotentReplay}` | seguir |
 | Aceita, aguardando referência | **202** | `status: PENDING_REFERENCE` | consultar depois / aguardar evento |
 | Payload inválido / header ausente | **400** | problem+json `VALIDATION_ERROR` + detalhes | corrigir payload |
-| Não autenticado / provider divergente do token | **401 / 403** | `UNAUTHENTICATED` / `PROVIDER_MISMATCH` | corrigir credencial |
+| Não autenticado / provider divergente do token | **401 / 403** | `UNAUTHENTICATED` / `PROVIDER_MISMATCH` (provider autenticado ≠ `providerId` do payload ou da URL) | corrigir credencial |
 | Recurso da URL inexistente (consultas) | **404** | `NOT_FOUND` | — |
 | Conflito de idempotência / external id / wallet duplicada | **409** | `IDEMPOTENCY_KEY_CONFLICT`, `EXTERNAL_TRANSACTION_ID_CONFLICT`, `WALLET_ALREADY_EXISTS` | **não** reenviar igual |
 | Rejeição de regra de negócio | **422** | `{transactionId, status: REJECTED, failureCode, balance, idempotentReplay}` | desistir ou corrigir |
+| Wallet inexistente (rejeição sem agregado, I-04) | **422** | problem+json `WALLET_NOT_FOUND` | corrigir payload |
 | Falha transitória | **503** + `Retry-After` | `retryable: true` | reenviar a mesma requisição |
-| Falha permanente (`FAILED`) / inesperada | **500** | `retryable: false` | escalar |
+| Transação `FAILED` (replay) | **500** | `{transactionId, status: FAILED, failureCode, idempotentReplay}` | escalar |
+| Erro inesperado / invariante violada | **500** | problem+json, `retryable: false` | escalar |
 
 Erros seguem `application/problem+json` (RFC 9457) com `code` e `retryable`. Replay devolve o **mesmo** status e corpo do original, com `idempotentReplay: true`.
 
@@ -802,6 +804,9 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 | I-11 | Idempotency key tem escopo por `providerId` | evita colisão entre provedores |
 | I-12 | `BET` não aceita `referenceExternalTransactionId` (400 `VALIDATION_ERROR`) | aposta abre a rodada; não há o que referenciar |
 | I-13 | `WIN`/`LOSS` com referência que não é uma `BET` → `REFERENCE_MISMATCH` | o resultado de rodada só liquida uma aposta; `REFERENCE_KIND_NOT_REVERSIBLE` fica reservado às reversões |
+| I-14 | `providerId = "internal"` é reservado → 400 `VALIDATION_ERROR` | identifica o `OPENING`; sem a regra, o CHECK do banco viraria um 500 |
+| I-15 | Consulta por id interno de transação de outro provider → 404; pela rota `/providers/:providerId/...` com provider alheio → 403 | não revelar a existência de transações alheias por id; a rota por provider já declara de quem é |
+| I-16 | `REFUND`/`ROLLBACK` que chega antes da referência e cuja referência depois chega: fica `PENDING_REFERENCE` até o worker (Sprint 4) | a resolução imediata ("nudge") é parte do worker |
 
 ---
 

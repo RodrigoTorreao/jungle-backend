@@ -89,3 +89,13 @@ Formato:
 **Contexto:** revisão do que existia contra o enunciado. Nenhuma falha eliminatória, mas o §2 exige um ponto de extensão de autenticação **no código** mesmo sem IdP, e ele só estava planejado para o Sprint 6; também havia afirmações na ARCHITECTURE à frente do código (o helper de consistência "verificava outbox").
 **Decisão:** antecipar só o ponto de extensão (porta `ProviderIdentityPort`, guard global com `@Public()`, `AUTH_MODE=disabled`, 401) e corrigir a documentação para descrever o que existe. Itens de sprints futuros (autorização por provider, Keycloak, checagem de outbox) ficaram onde estavam.
 **Consequência:** regra prática: ARCHITECTURE descreve o presente e marca explicitamente o que é planejado. **Ref:** ARCHITECTURE §11 e §12.
+
+### DL-016 · 2026-10-29 · Provar que o teste de corrida corre de verdade
+**Contexto:** o teste "mesma chave em duas wallets ao mesmo tempo" passava, mas passaria também se as requisições tivessem chegado em série por acaso, sem exercitar o caminho `23505 → retry → conflito`.
+**Achado:** com o `catch` do repositório instrumentado temporariamente, as 20 de 20 duplas passaram pela violação de unicidade e se resolveram pelo retry. O cenário obrigatório (T-C02) rodou 100 vezes seguidas para o critério de saída.
+**Consequência:** teste de concorrência só conta como evidência depois de mostrar que o caminho concorrente foi tomado. **Ref:** `test/concurrency/wagering.test.ts`, ARCHITECTURE §6.
+
+### DL-017 · 2026-10-29 · Reconciliação inteira em `numeric` no PostgreSQL
+**Contexto:** a reconciliação precisa mostrar diferenças possivelmente negativas, e `Money.from` só aceita valores de contrato (não negativos).
+**Decisão:** soma, diferença e comparações calculadas no próprio SQL (`numeric`), num snapshot `REPEATABLE READ READ ONLY`; a aplicação só monta a resposta, sem criar um `Money` "com sinal" para diagnóstico.
+**Consequência:** nenhuma aritmética monetária fora do banco ou do `Money`; a divergência é demonstrada num teste que desliga os triggers como superusuário. **Ref:** `MikroOrmReconciliationReader`.
