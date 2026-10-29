@@ -2,6 +2,7 @@ import { DEFAULT_OUTBOX_RETRY_POLICY } from '../../domain/messaging/outbox-messa
 import type { BackoffPolicy } from '../../domain/shared/backoff';
 import type { FaultInjector } from '../ports/fault-injector';
 import type { EventPublisher, PublishReport } from '../ports/messaging';
+import { type Metrics, noopMetrics } from '../ports/observability';
 import type { UnitOfWork } from '../ports/persistence';
 import type { Clock } from '../ports/system';
 
@@ -24,6 +25,7 @@ export class PublishOutboxUseCase {
     private readonly publisher: EventPublisher,
     private readonly clock: Clock,
     private readonly faults: FaultInjector,
+    private readonly metrics: Metrics = noopMetrics,
     private readonly retryPolicy: BackoffPolicy = DEFAULT_OUTBOX_RETRY_POLICY,
   ) {}
 
@@ -56,6 +58,8 @@ export class PublishOutboxUseCase {
         }
         await scope.outbox.update(message);
       }
+      this.metrics.outboxPublish('published', report.published.size);
+      this.metrics.outboxPublish('failed', due.length - report.published.size);
       return {
         claimed: due.length,
         published: report.published.size,

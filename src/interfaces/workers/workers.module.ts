@@ -6,7 +6,12 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 import { FAULT_INJECTOR, type FaultInjector } from '../../application/ports/fault-injector';
-import { APP_LOGGER, type AppLogger } from '../../application/ports/observability';
+import {
+  APP_LOGGER,
+  type AppLogger,
+  METRICS,
+  type Metrics,
+} from '../../application/ports/observability';
 import { CLOCK, type Clock } from '../../application/ports/system';
 import { ProcessWagerTransactionUseCase } from '../../application/use-cases/process-wager-transaction';
 import { PublishOutboxUseCase } from '../../application/use-cases/publish-outbox';
@@ -54,6 +59,7 @@ export class WorkersLifecycle implements OnApplicationBootstrap, BeforeApplicati
         FAULT_INJECTOR,
         APP_LOGGER,
         APP_CONFIG,
+        METRICS,
       ],
       useFactory: (
         queues: QueueDirectory,
@@ -62,17 +68,26 @@ export class WorkersLifecycle implements OnApplicationBootstrap, BeforeApplicati
         faults: FaultInjector,
         logger: AppLogger,
         config: AppConfig,
+        metrics: Metrics,
       ) =>
-        new WagerTransactionConsumer(queues, processWager, clock, faults, logger, {
-          queueName: config.sqs.wagerTransactionsQueue,
-          deadLetterQueueName: config.sqs.wagerTransactionsDlq,
-          consumerName: config.sqs.consumerName,
-          waitTimeSeconds: config.sqs.waitTimeSeconds,
-          maxMessages: config.sqs.maxMessages,
-          retryBaseSeconds: config.sqs.retryBaseSeconds,
-          retryMaxSeconds: config.sqs.retryMaxSeconds,
-          shutdownGraceMs: config.shutdownGraceMs,
-        }),
+        new WagerTransactionConsumer(
+          queues,
+          processWager,
+          clock,
+          faults,
+          logger,
+          {
+            queueName: config.sqs.wagerTransactionsQueue,
+            deadLetterQueueName: config.sqs.wagerTransactionsDlq,
+            consumerName: config.sqs.consumerName,
+            waitTimeSeconds: config.sqs.waitTimeSeconds,
+            maxMessages: config.sqs.maxMessages,
+            retryBaseSeconds: config.sqs.retryBaseSeconds,
+            retryMaxSeconds: config.sqs.retryMaxSeconds,
+            shutdownGraceMs: config.shutdownGraceMs,
+          },
+          metrics,
+        ),
     },
     {
       provide: OUTBOX_WORKER,

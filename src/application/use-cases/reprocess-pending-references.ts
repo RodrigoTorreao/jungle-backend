@@ -6,6 +6,7 @@ import {
   type ReferenceRetryPolicy,
 } from '../../domain/wagering/wager-transaction';
 import { WagerTransactionStatus } from '../../domain/wagering/wager-transaction-kind';
+import { type Metrics, noopMetrics } from '../ports/observability';
 import type {
   PendingReferenceCandidate,
   TransactionScope,
@@ -15,6 +16,7 @@ import type {
 import type { Clock, IdGenerator } from '../ports/system';
 import {
   DEFAULT_TRANSIENT_RETRY,
+  recordTransientFailure,
   type TransientRetryPolicy,
   withTransientRetry,
 } from '../services/transient-retry';
@@ -46,6 +48,7 @@ export class ReprocessPendingReferencesUseCase {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly policy: ReferenceRetryPolicy = DEFAULT_REFERENCE_RETRY_POLICY,
+    private readonly metrics: Metrics = noopMetrics,
     private readonly retryPolicy: TransientRetryPolicy = DEFAULT_TRANSIENT_RETRY,
   ) {}
 
@@ -53,11 +56,23 @@ export class ReprocessPendingReferencesUseCase {
     const candidates = await this.reader.findDuePendingReferences(this.clock.now(), limit);
     const tally = { processed: 0, rejected: 0, rescheduled: 0, skipped: 0 };
     for (const candidate of candidates) {
-      const resolution = await withTransientRetry(
+      const startedAt = performance.now();
+      const { resolution, kind } = await withTransientRetry(
         () => this.unitOfWork.run((scope) => this.reprocess(scope, candidate)),
         this.retryPolicy,
+        (failure) => recordTransientFailure(this.metrics, failure),
       );
       tally[resolution] += 1;
+      if (kind !== undefined && (resolution === 'processed' || resolution === 'rejected')) {
+        const status = resolution === 'processed' ? 'PROCESSED' : 'REJECTED';
+        this.metrics.transactionOutcome(kind, status, 'worker');
+        this.metrics.processingDuration(
+          kind,
+          'worker',
+          resolution,
+          (performance.now() - startedAt) / 1000,
+        );
+      }
     }
     return tally;
   }
@@ -65,7 +80,7 @@ export class ReprocessPendingReferencesUseCase {
   private async reprocess(
     scope: TransactionScope,
     candidate: PendingReferenceCandidate,
-  ): Promise<PendingResolution> {
+  ): Promise<{ resolution: PendingResolution; kind: string | undefined }> {
     const now = this.clock.now();
     const wallet = await scope.wallets.lockForUpdate(candidate.walletId);
     const transaction = await scope.transactions.lockForUpdate(candidate.transactionId);
@@ -76,7 +91,7 @@ export class ReprocessPendingReferencesUseCase {
       (transaction.nextAttemptAt !== undefined && transaction.nextAttemptAt > now) ||
       transaction.referenceExternalTransactionId === undefined
     ) {
-      return 'skipped'; // handled or rescheduled by another worker meanwhile
+      return { resolution: 'skipped', kind: undefined }; // handled or rescheduled by another worker meanwhile
     }
 
     const reference = await scope.transactions.findByExternalId(
@@ -103,7 +118,7 @@ export class ReprocessPendingReferencesUseCase {
       if (!transaction.isReferenceWaitExhausted(now, this.policy)) {
         transaction.scheduleReferenceRetry(now, this.policy);
         await scope.transactions.update(transaction);
-        return 'rescheduled';
+        return { resolution: 'rescheduled', kind: transaction.kind };
       }
       transaction.reject(FailureCode.ReferenceNotFound, now, wallet.balance);
       outcome = {
@@ -132,6 +147,9 @@ export class ReprocessPendingReferencesUseCase {
         occurredAt: now,
       })).map((event) => OutboxMessage.enqueue(event)),
     );
-    return outcome.status === WagerTransactionStatus.Processed ? 'processed' : 'rejected';
+    return {
+      resolution: outcome.status === WagerTransactionStatus.Processed ? 'processed' : 'rejected',
+      kind: transaction.kind,
+    };
   }
 }

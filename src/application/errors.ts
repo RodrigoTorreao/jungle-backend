@@ -101,8 +101,26 @@ export class ConcurrencyConflictError extends ApplicationError {
   }
 }
 
+/** Why a transient failure happened — the label of retry and lock-conflict metrics. */
+export type TransientReason =
+  | 'lock_timeout'
+  | 'deadlock'
+  | 'serialization'
+  | 'duplicate_key_race'
+  | 'connection'
+  | 'broker';
+
+const DEFAULT_REASON: Record<TransientInfrastructureError['code'], TransientReason> = {
+  [FailureCode.DatabaseUnavailable]: 'connection',
+  [FailureCode.LockTimeout]: 'lock_timeout',
+  [FailureCode.ConcurrencyConflict]: 'deadlock',
+  [FailureCode.BrokerUnavailable]: 'broker',
+};
+
 /** PostgreSQL or SQS temporarily unavailable, lock timeout, deadlock… Safe to retry unchanged. */
 export class TransientInfrastructureError extends ApplicationError {
+  readonly reason: TransientReason;
+
   constructor(
     readonly code:
       | FailureCode.DatabaseUnavailable
@@ -110,9 +128,10 @@ export class TransientInfrastructureError extends ApplicationError {
       | FailureCode.ConcurrencyConflict
       | FailureCode.BrokerUnavailable,
     message: string,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; reason?: TransientReason },
   ) {
     super(message);
+    this.reason = options?.reason ?? DEFAULT_REASON[code];
     if (options?.cause !== undefined) {
       this.cause = options.cause;
     }

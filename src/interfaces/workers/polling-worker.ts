@@ -1,4 +1,5 @@
 import type { AppLogger } from '../../application/ports/observability';
+import { logContext } from '../../infrastructure/observability/log-context';
 
 /**
  * Runs `tick` in a loop: immediately again while it reports work, otherwise after
@@ -36,7 +37,10 @@ export class PollingWorker {
     while (!this.stopping) {
       let work = 0;
       try {
-        work = await this.tick();
+        work = await logContext.run(
+          { worker: this.name, correlationId: `${this.name}:${Bun.randomUUIDv7()}` },
+          () => this.tick(),
+        );
       } catch (error) {
         this.logger.error({ worker: this.name, err: error }, 'Worker tick failed');
       }

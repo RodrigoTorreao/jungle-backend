@@ -17,12 +17,19 @@ import {
   WalletNotFoundError,
 } from '../errors';
 import type { Principal } from '../ports/identity';
+import {
+  type MessageSource,
+  type Metrics,
+  noopMetrics,
+  type ProcessingOutcome,
+} from '../ports/observability';
 import type { TransactionScope, UnitOfWork } from '../ports/persistence';
 import type { Clock, IdGenerator } from '../ports/system';
 import { assertMayActFor } from '../services/authorization';
 import { hashWagerPayload } from '../services/payload-hasher';
 import {
   DEFAULT_TRANSIENT_RETRY,
+  recordTransientFailure,
   type TransientRetryPolicy,
   withTransientRetry,
 } from '../services/transient-retry';
@@ -52,7 +59,16 @@ export interface ProcessWagerCommand {
   readonly causationId: string;
   /** Present when the submission arrived as a queue message (Desafio §10). */
   readonly inbox?: InboxContext | undefined;
+  /** Entry point, for metrics. */
+  readonly source: MessageSource;
 }
+
+const OUTCOME_LABEL: Readonly<Record<WagerResult['status'], ProcessingOutcome>> = {
+  [WagerTransactionStatus.Processed]: 'processed',
+  [WagerTransactionStatus.Rejected]: 'rejected',
+  [WagerTransactionStatus.PendingReference]: 'pending_reference',
+  [WagerTransactionStatus.Failed]: 'failed',
+};
 
 export interface InboxContext {
   readonly consumerName: string;
@@ -82,19 +98,53 @@ export class ProcessWagerTransactionUseCase {
     private readonly unitOfWork: UnitOfWork,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
+    private readonly metrics: Metrics = noopMetrics,
     private readonly retryPolicy: TransientRetryPolicy = DEFAULT_TRANSIENT_RETRY,
   ) {}
 
   async execute(command: ProcessWagerCommand): Promise<WagerResult> {
-    assertMayActFor(command.principal, command.submission.providerId);
-    const payloadHash = hashWagerPayload(command.submission);
-    // Validate the contract before taking any lock: invalid payloads never reach the database.
-    this.buildTransaction(command, payloadHash, this.clock.now());
+    const startedAt = performance.now();
+    const { kind } = command.submission;
+    const elapsed = () => (performance.now() - startedAt) / 1000;
+    try {
+      assertMayActFor(command.principal, command.submission.providerId);
+      const payloadHash = hashWagerPayload(command.submission);
+      // Validate the contract before taking any lock: invalid payloads never reach the database.
+      this.buildTransaction(command, payloadHash, this.clock.now());
 
-    return withTransientRetry(
-      () => this.unitOfWork.run((scope) => this.process(scope, command, payloadHash)),
-      this.retryPolicy,
-    );
+      const result = await withTransientRetry(
+        () => this.unitOfWork.run((scope) => this.process(scope, command, payloadHash)),
+        this.retryPolicy,
+        (failure) => recordTransientFailure(this.metrics, failure),
+      );
+      if (result.idempotentReplay) {
+        this.metrics.idempotentReplay(command.source);
+        this.metrics.processingDuration(kind, command.source, 'replay', elapsed());
+      } else {
+        this.metrics.transactionOutcome(kind, result.status, command.source);
+        this.metrics.processingDuration(
+          kind,
+          command.source,
+          OUTCOME_LABEL[result.status],
+          elapsed(),
+        );
+      }
+      return result;
+    } catch (error) {
+      const conflict =
+        error instanceof IdempotencyKeyConflictError ||
+        error instanceof ExternalTransactionIdConflictError;
+      if (conflict) {
+        this.metrics.idempotencyConflict(command.source);
+      }
+      this.metrics.processingDuration(
+        kind,
+        command.source,
+        conflict ? 'conflict' : 'error',
+        elapsed(),
+      );
+      throw error;
+    }
   }
 
   private async process(
@@ -189,6 +239,7 @@ export class ProcessWagerTransactionUseCase {
     if (await scope.inbox.tryReceive(message)) {
       return;
     }
+    this.metrics.inboxDuplicate(context.consumerName);
     const existing = await scope.inbox.find(context.consumerName, context.messageId);
     if (existing !== undefined && !existing.matchesPayload(context.payloadHash)) {
       throw new InboxPayloadMismatchError(context.consumerName, context.messageId);

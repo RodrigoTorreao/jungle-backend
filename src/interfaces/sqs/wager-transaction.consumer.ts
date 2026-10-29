@@ -7,13 +7,14 @@ import {
 } from '@aws-sdk/client-sqs';
 import { ApplicationError } from '../../application/errors';
 import { type FaultInjector, SimulatedCrashError } from '../../application/ports/fault-injector';
-import type { AppLogger } from '../../application/ports/observability';
+import { type AppLogger, type Metrics, noopMetrics } from '../../application/ports/observability';
 import type { Clock } from '../../application/ports/system';
 import { hashMessagePayload } from '../../application/services/payload-hasher';
 import { isRetryable } from '../../application/services/transient-retry';
 import type { ProcessWagerTransactionUseCase } from '../../application/use-cases/process-wager-transaction';
 import { DomainError } from '../../domain/shared/domain-error';
 import type { QueueDirectory } from '../../infrastructure/messaging/sqs';
+import { logContext } from '../../infrastructure/observability/log-context';
 import { WagerTransactionRequestedMessage } from '../contracts/wager-submission';
 
 export interface WagerConsumerOptions {
@@ -67,6 +68,7 @@ export class WagerTransactionConsumer {
     private readonly faults: FaultInjector,
     private readonly logger: AppLogger,
     private readonly options: WagerConsumerOptions,
+    private readonly metrics: Metrics = noopMetrics,
   ) {}
 
   /** Whether a ReceiveMessage (long poll) is in progress — observable for shutdown tests. */
@@ -165,7 +167,13 @@ export class WagerTransactionConsumer {
         outcomes.push('released');
         continue;
       }
-      const outcome = await this.handle(queueUrl, message);
+      const outcome = await logContext.run(
+        {
+          correlationId:
+            message.MessageAttributes?.correlationId?.StringValue ?? message.MessageId ?? 'sqs',
+        },
+        () => this.handle(queueUrl, message),
+      );
       outcomes.push(outcome);
       if (outcome === 'crashed') {
         return outcomes; // a dead process touches nothing else
@@ -189,6 +197,7 @@ export class WagerTransactionConsumer {
       walletId: submission.walletId,
       providerId: submission.providerId,
     };
+    logContext.assign(context);
     try {
       const result = await this.processWager.execute({
         submission,
@@ -196,6 +205,7 @@ export class WagerTransactionConsumer {
         principal: { kind: 'trusted' },
         correlationId: message.MessageAttributes?.correlationId?.StringValue ?? parsed.messageId,
         causationId: parsed.messageId,
+        source: 'sqs',
         inbox: {
           consumerName: this.options.consumerName,
           messageId: parsed.messageId,
@@ -203,6 +213,7 @@ export class WagerTransactionConsumer {
           receivedAt: this.clock.now(),
         },
       });
+      logContext.assign({ transactionId: result.transactionId });
       this.faults.hit('after-commit-before-ack');
       await this.delete(queueUrl, message);
       this.logger.info(
@@ -255,6 +266,7 @@ export class WagerTransactionConsumer {
       // DLQ unreachable: keep the message; the redrive policy is the fallback.
       return this.scheduleRetry(queueUrl, message, error, { sqsMessageId: message.MessageId });
     }
+    this.metrics.deadLetter(failureCode);
     this.logger.warn(
       { sqsMessageId: message.MessageId, failureCode },
       'Message moved to the dead-letter queue',

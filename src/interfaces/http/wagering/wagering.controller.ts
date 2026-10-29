@@ -4,6 +4,7 @@ import { ProcessWagerTransactionUseCase } from '../../../application/use-cases/p
 import { GetWagerTransactionQuery } from '../../../application/use-cases/wager-transaction-queries';
 import type { WagerResult, WagerTransactionView } from '../../../application/views';
 import { WagerTransactionStatus } from '../../../domain/wagering/wager-transaction-kind';
+import { logContext } from '../../../infrastructure/observability/log-context';
 import { identifier, WagerSubmissionBody } from '../../contracts/wager-submission';
 import { type AuthenticatedRequest, principalOf } from '../auth/auth.guard';
 import { correlationIdOf, parseRequest, UuidParam } from '../request';
@@ -57,13 +58,16 @@ export class WageringController {
   ): Promise<WagerResponseBody> {
     const key = parseRequest(IdempotencyKeyHeader, idempotencyKey);
     const submission = parseRequest(WagerSubmissionBody, body);
+    logContext.assign({ walletId: submission.walletId, providerId: submission.providerId });
     const result = await this.processWager.execute({
       submission,
       idempotencyKey: key,
       principal: principalOf(request),
       correlationId: correlationIdOf(request),
       causationId: key,
+      source: 'http',
     });
+    logContext.assign({ transactionId: result.transactionId });
     response.status(STATUS_BY_OUTCOME[result.status]);
     return toWagerResponseBody(result);
   }

@@ -5,11 +5,17 @@ export interface SqsConnection {
   readonly endpointUrl: string | undefined;
 }
 
-/** SQS client; with AWS_ENDPOINT_URL set it talks to LocalStack. Credentials: default chain. */
+/**
+ * SQS client; with AWS_ENDPOINT_URL set it talks to LocalStack. Credentials: default chain.
+ * With an explicit endpoint, requests must go there — not to the host embedded in a QueueUrl
+ * (LocalStack answers `localhost.localstack.cloud:4566`, which would bypass the endpoint).
+ */
 export function createSqsClient(connection: SqsConnection): SQSClient {
   return new SQSClient({
     region: connection.region,
-    ...(connection.endpointUrl === undefined ? {} : { endpoint: connection.endpointUrl }),
+    ...(connection.endpointUrl === undefined
+      ? {}
+      : { endpoint: connection.endpointUrl, useQueueUrlAsEndpoint: false }),
   });
 }
 

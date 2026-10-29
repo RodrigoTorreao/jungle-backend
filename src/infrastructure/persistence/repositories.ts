@@ -118,7 +118,7 @@ export class MikroOrmWagerTransactionRepository implements WagerTransactionRepos
         throw new TransientInfrastructureError(
           FailureCode.ConcurrencyConflict,
           `Concurrent submission of ${transaction.providerId}/${transaction.externalTransactionId}`,
-          { cause: error },
+          { cause: error, reason: 'duplicate_key_race' },
         );
       }
       throw error;

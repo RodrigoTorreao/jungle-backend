@@ -58,9 +58,16 @@ function isConnectionFailure(error: unknown): boolean {
     return TRANSIENT_CONNECTION_CLASSES.some((prefix) => state.startsWith(prefix));
   }
   const code = (error as { code?: unknown } | null)?.code;
-  return (
+  if (
     typeof code === 'string' &&
     ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND'].includes(code)
+  ) {
+    return true;
+  }
+  // node-postgres reports a dropped socket without a code.
+  const message = error instanceof Error ? error.message : '';
+  return /Connection terminated|connection timeout|Client has encountered a connection error/i.test(
+    message,
   );
 }
 
@@ -81,6 +88,7 @@ export function translateDatabaseError(error: unknown): unknown {
   if (state === DEADLOCK || state === SERIALIZATION_FAILURE) {
     return new TransientInfrastructureError(FailureCode.ConcurrencyConflict, message, {
       cause: error,
+      reason: state === DEADLOCK ? 'deadlock' : 'serialization',
     });
   }
   if (isConnectionFailure(error)) {

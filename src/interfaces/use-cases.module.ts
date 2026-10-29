@@ -39,21 +39,31 @@ const useCases = [
   },
   {
     provide: ProcessWagerTransactionUseCase,
-    inject: [UNIT_OF_WORK, ID_GENERATOR, CLOCK],
-    useFactory: (uow: UnitOfWork, ids: IdGenerator, clock: Clock) =>
-      new ProcessWagerTransactionUseCase(uow, ids, clock),
+    inject: [UNIT_OF_WORK, ID_GENERATOR, CLOCK, METRICS],
+    useFactory: (uow: UnitOfWork, ids: IdGenerator, clock: Clock, metrics: Metrics) =>
+      new ProcessWagerTransactionUseCase(uow, ids, clock, metrics),
   },
   {
     provide: PublishOutboxUseCase,
-    inject: [UNIT_OF_WORK, EVENT_PUBLISHER, CLOCK, FAULT_INJECTOR],
-    useFactory: (uow: UnitOfWork, publisher: EventPublisher, clock: Clock, faults: FaultInjector) =>
-      new PublishOutboxUseCase(uow, publisher, clock, faults),
+    inject: [UNIT_OF_WORK, EVENT_PUBLISHER, CLOCK, FAULT_INJECTOR, METRICS],
+    useFactory: (
+      uow: UnitOfWork,
+      publisher: EventPublisher,
+      clock: Clock,
+      faults: FaultInjector,
+      metrics: Metrics,
+    ) => new PublishOutboxUseCase(uow, publisher, clock, faults, metrics),
   },
   {
     provide: ReprocessPendingReferencesUseCase,
-    inject: [UNIT_OF_WORK, WAGER_TRANSACTION_READER, ID_GENERATOR, CLOCK],
-    useFactory: (uow: UnitOfWork, reader: WagerTransactionReader, ids: IdGenerator, clock: Clock) =>
-      new ReprocessPendingReferencesUseCase(uow, reader, ids, clock),
+    inject: [UNIT_OF_WORK, WAGER_TRANSACTION_READER, ID_GENERATOR, CLOCK, METRICS],
+    useFactory: (
+      uow: UnitOfWork,
+      reader: WagerTransactionReader,
+      ids: IdGenerator,
+      clock: Clock,
+      metrics: Metrics,
+    ) => new ReprocessPendingReferencesUseCase(uow, reader, ids, clock, undefined, metrics),
   },
   {
     provide: GetWagerTransactionQuery,
