@@ -39,7 +39,7 @@ flowchart LR
 - [x] **S0-06** Config tipada e validada com `zod` (falha rápida no boot)
 - [x] **S0-07** Logger JSON (pino) baseline + `GET /health/live`
 - [x] **S0-08** Harness de testes: `bun test` separado por suíte (`test:unit`, `test:integration`, `test:concurrency`), banco isolado por arquivo de teste (`CREATE DATABASE … TEMPLATE`), helpers `waitFor` (sem `sleep` fixo)
-- [ ] **S0-09** CI no GitHub Actions (Linux) subindo o Compose e rodando as suítes [D-08]
+- [x] **S0-09** CI no GitHub Actions (Linux) subindo o Compose e rodando as suítes [D-08]
 
 **Critério de saída:** `docker compose up` + `bun run dev` sobem a app; `bun run test` roda (mesmo vazio) contra containers reais; migration de exemplo faz `up` e `down`.
 
