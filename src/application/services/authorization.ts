@@ -1,4 +1,4 @@
-import { ProviderMismatchError } from '../errors';
+import { ForbiddenError, ProviderMismatchError } from '../errors';
 import type { Principal } from '../ports/identity';
 
 /**
@@ -13,6 +13,13 @@ export function assertMayActFor(principal: Principal, providerId: string): void 
     return;
   }
   throw new ProviderMismatchError();
+}
+
+/** Wallet creation, ledger reads and reconciliation: operators only (ARCHITECTURE §11). */
+export function assertBackoffice(principal: Principal): void {
+  if (principal.kind === 'provider') {
+    throw new ForbiddenError();
+  }
 }
 
 /** Whether the caller may read data of `providerId` (other providers' data stays invisible). */

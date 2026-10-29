@@ -1,3 +1,5 @@
+// First: tracing must patch `http` and `pg` before anything requires them.
+import './infrastructure/observability/tracing';
 import { createApp } from './bootstrap';
 import { InvalidConfigError, loadConfig } from './infrastructure/config/app-config';
 

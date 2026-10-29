@@ -61,8 +61,8 @@ export interface OutboxRepository {
    * publishers never claim the same row, and a crashed publisher's rows unlock with its connection.
    */
   claimDue(now: Date, limit: number): Promise<OutboxMessage[]>;
-  /** Persists publication or retry scheduling. */
-  update(message: OutboxMessage): Promise<void>;
+  /** Persists publication or retry scheduling of a claimed batch, in one statement. */
+  updateAll(messages: readonly OutboxMessage[]): Promise<void>;
 }
 
 export interface PendingReferenceCandidate {
@@ -144,6 +144,11 @@ export interface ReconciliationSnapshot {
 export interface ReconciliationReader {
   /** Read-only, REPEATABLE READ: wallet and ledger seen at the same instant, no locks taken. */
   snapshot(walletId: string): Promise<ReconciliationSnapshot | undefined>;
+  /**
+   * Up to `size` wallet ids for the periodic check (D-07): wallets changed since `recentSince`
+   * first, the rest drawn at random so idle wallets are eventually covered too.
+   */
+  sampleWalletIds(size: number, recentSince: Date): Promise<string[]>;
 }
 
 export const UNIT_OF_WORK = Symbol('UnitOfWork');

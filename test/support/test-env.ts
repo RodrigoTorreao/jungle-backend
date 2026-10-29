@@ -31,6 +31,9 @@ export function baseAppEnv(overrides: Record<string, string> = {}): Record<strin
     APP_ROLES: 'api',
     DATABASE_URL: testEnv.appUrl,
     DATABASE_POOL_MAX: '5',
+    // The SDK would read it from process.env anyway; through the config it also pins requests
+    // to the endpoint instead of the QueueUrl host (ADR-015).
+    ...(process.env.AWS_ENDPOINT_URL ? { AWS_ENDPOINT_URL: process.env.AWS_ENDPOINT_URL } : {}),
     ...overrides,
   };
 }

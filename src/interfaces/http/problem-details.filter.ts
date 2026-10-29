@@ -11,7 +11,9 @@ import {
   ApplicationError,
   ConcurrencyConflictError,
   ExternalTransactionIdConflictError,
+  ForbiddenError,
   IdempotencyKeyConflictError,
+  IdentityProviderUnavailableError,
   InvalidRequestError,
   InvariantBreachError,
   ProviderMismatchError,
@@ -58,8 +60,11 @@ export function toProblem(error: unknown): Problem {
   if (error instanceof UnauthenticatedError) {
     return problem(401, error.code, 'Unauthenticated', error.message, false);
   }
-  if (error instanceof ProviderMismatchError) {
+  if (error instanceof ProviderMismatchError || error instanceof ForbiddenError) {
     return problem(403, error.code, 'Forbidden', error.message, false);
+  }
+  if (error instanceof IdentityProviderUnavailableError) {
+    return problem(503, error.code, 'Service unavailable', error.message, true);
   }
   if (error instanceof ResourceNotFoundError) {
     return problem(404, error.code, 'Not found', error.message, false);

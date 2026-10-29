@@ -13,6 +13,9 @@ export type Principal =
   | { readonly kind: 'provider'; readonly providerId: string }
   | { readonly kind: 'backoffice'; readonly subject: string };
 
+/** Internal callers (SQS consumer, workers, scripts): no identity to check. */
+export const TRUSTED: Principal = Object.freeze({ kind: 'trusted' });
+
 export interface RequestCredentials {
   /** Raw `Authorization` header, when present. */
   readonly authorization: string | undefined;

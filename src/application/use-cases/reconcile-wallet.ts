@@ -1,6 +1,8 @@
 import { ResourceNotFoundError } from '../errors';
-import type { AppLogger, Metrics } from '../ports/observability';
+import type { Principal } from '../ports/identity';
+import type { AppLogger, Metrics, ReconciliationTrigger } from '../ports/observability';
 import type { ReconciliationReader } from '../ports/persistence';
+import { assertBackoffice } from '../services/authorization';
 import type { ReconciliationView } from '../views';
 
 /**
@@ -17,19 +19,26 @@ export class ReconcileWalletUseCase {
     private readonly metrics: Metrics,
   ) {}
 
-  async execute(walletId: string, correlationId: string): Promise<ReconciliationView> {
+  async execute(
+    walletId: string,
+    correlationId: string,
+    principal: Principal,
+    trigger: ReconciliationTrigger = 'request',
+  ): Promise<ReconciliationView> {
+    assertBackoffice(principal);
     const snapshot = await this.reader.snapshot(walletId);
     if (snapshot === undefined) {
       throw new ResourceNotFoundError('Wallet', walletId);
     }
     const consistent = snapshot.balancesMatch && snapshot.latestEntryMatches;
+    this.metrics.reconciliationCheck(trigger, consistent);
     if (!consistent) {
-      this.metrics.reconciliationDivergence();
       // Amounts stay out of the log on purpose; the response carries them to the operator.
       this.logger.error(
         {
           walletId,
           correlationId,
+          trigger,
           checkedEntries: snapshot.checkedEntries,
           balancesMatch: snapshot.balancesMatch,
           latestEntryMatches: snapshot.latestEntryMatches,

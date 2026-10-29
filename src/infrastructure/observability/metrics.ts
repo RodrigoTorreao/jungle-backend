@@ -4,6 +4,7 @@ import type {
   MessageSource,
   Metrics,
   ProcessingOutcome,
+  ReconciliationTrigger,
 } from '../../application/ports/observability';
 
 /**
@@ -78,9 +79,17 @@ export class PromMetrics implements Metrics {
     registers: [this.registry],
   });
 
+  private readonly reconciliations = new Counter({
+    name: 'wallet_reconciliations_total',
+    help: 'Wallets reconciled against their ledger, on request or by the sampled job',
+    labelNames: ['trigger'] as const,
+    registers: [this.registry],
+  });
+
   private readonly reconciliationDivergences = new Counter({
     name: 'wallet_reconciliation_divergences_total',
     help: 'Reconciliations that found the stored balance diverging from the ledger',
+    labelNames: ['trigger'] as const,
     registers: [this.registry],
   });
 
@@ -137,8 +146,11 @@ export class PromMetrics implements Metrics {
     }
   }
 
-  reconciliationDivergence(): void {
-    this.reconciliationDivergences.inc();
+  reconciliationCheck(trigger: ReconciliationTrigger, consistent: boolean): void {
+    this.reconciliations.inc({ trigger });
+    if (!consistent) {
+      this.reconciliationDivergences.inc({ trigger });
+    }
   }
 }
 

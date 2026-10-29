@@ -4,6 +4,7 @@ import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import { stdTimeFunctions } from 'pino';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { logContext } from './log-context';
+import { activeTraceIds } from './spans';
 
 export const CORRELATION_ID_HEADER = 'x-correlation-id';
 const MAX_CORRELATION_ID_LENGTH = 128;
@@ -63,8 +64,9 @@ export function correlationMiddleware(
           base: { service: 'wagering' },
           timestamp: stdTimeFunctions.isoTime,
           formatters: { level: (label: string) => ({ level: label }) },
-          // Stamps correlationId, messageId, transactionId, walletId, providerId on every line.
-          mixin: () => ({ ...logContext.current() }),
+          // Stamps correlationId, messageId, transactionId, walletId, providerId on every line,
+          // plus traceId/spanId when tracing is on (log ↔ trace navigation).
+          mixin: () => ({ ...logContext.current(), ...activeTraceIds() }),
           redact: { paths: REDACTED_PATHS, censor: '[REDACTED]' },
           genReqId: resolveCorrelationId,
           customProps: (req: RequestWithId) => ({ correlationId: req.id }),

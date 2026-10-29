@@ -1,5 +1,5 @@
 import { MikroORM } from '@mikro-orm/postgresql';
-import { Global, Module } from '@nestjs/common';
+import { Global, Injectable, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { APP_LOGGER, METRICS } from '../../application/ports/observability';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { QueueDirectory } from '../messaging/sqs';
@@ -7,8 +7,17 @@ import { NestAppLogger } from './app-logger';
 import { PromMetrics, registerOperationalGauges } from './metrics';
 import { DatabaseAndQueueReadings } from './operational-readings';
 import { ReadinessProbe } from './readiness';
+import { tracerProvider } from './tracing';
 
 const OPERATIONAL_GAUGES = Symbol('OperationalGauges');
+
+/** Flushes buffered spans after every other shutdown hook (no-op when tracing is off). */
+@Injectable()
+class TracingShutdown implements OnApplicationShutdown {
+  async onApplicationShutdown(): Promise<void> {
+    await tracerProvider?.shutdown();
+  }
+}
 
 @Global()
 @Module({
@@ -33,6 +42,7 @@ const OPERATIONAL_GAUGES = Symbol('OperationalGauges');
         return true;
       },
     },
+    TracingShutdown,
     {
       provide: ReadinessProbe,
       inject: [MikroORM, QueueDirectory, APP_CONFIG],

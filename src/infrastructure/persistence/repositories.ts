@@ -231,16 +231,35 @@ export class MikroOrmOutboxRepository implements OutboxRepository {
     return records.map(outboxToDomain);
   }
 
-  async update(message: OutboxMessage): Promise<void> {
-    await this.em.nativeUpdate(
-      OutboxMessageRecord,
-      { id: message.id },
-      {
-        attempts: message.attempts,
-        nextAttemptAt: message.nextAttemptAt ?? null,
-        publishedAt: message.publishedAt ?? null,
-        lastError: message.lastError ?? null,
-      },
+  /**
+   * One UPDATE for the whole batch (a JSON recordset) instead of one round trip per
+   * row — the load test showed the per-row updates capping the relay (docs/LOAD_TEST.md).
+   */
+  async updateAll(messages: readonly OutboxMessage[]): Promise<void> {
+    if (messages.length === 0) {
+      return;
+    }
+    await this.em.execute(
+      `UPDATE outbox_messages AS o
+          SET attempts = v.attempts,
+              next_attempt_at = v.next_attempt_at,
+              published_at = v.published_at,
+              last_error = v.last_error
+         FROM jsonb_to_recordset(?::jsonb) AS v(
+                id uuid, attempts integer, next_attempt_at timestamptz,
+                published_at timestamptz, last_error text)
+        WHERE o.id = v.id`,
+      [
+        JSON.stringify(
+          messages.map((m) => ({
+            id: m.id,
+            attempts: m.attempts,
+            next_attempt_at: m.nextAttemptAt?.toISOString() ?? null,
+            published_at: m.publishedAt?.toISOString() ?? null,
+            last_error: m.lastError ?? null,
+          })),
+        ),
+      ],
     );
   }
 }
@@ -409,5 +428,19 @@ export class MikroOrmReconciliationReader implements ReconciliationReader {
       latestEntryMatches: row.latest_entry_matches,
       checkedEntries: row.checked_entries,
     };
+  }
+
+  /**
+   * One pass over `wallets` per call (`random()` cannot use an index). Fine for a job that runs
+   * every minute or so; at millions of wallets it would move to TABLESAMPLE or a sweep cursor.
+   */
+  async sampleWalletIds(size: number, recentSince: Date): Promise<string[]> {
+    const rows = await this.em
+      .fork()
+      .execute<{ id: string }[]>(
+        'SELECT id FROM wallets ORDER BY (updated_at >= ?) DESC, random() LIMIT ?',
+        [recentSince, size],
+      );
+    return rows.map((row) => row.id);
   }
 }

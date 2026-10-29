@@ -10,7 +10,8 @@ export interface PublishReport {
 /**
  * Publishes outbox messages to the event stream. At-least-once: a message may be published again
  * after a crash, always with the same eventId (the FIFO deduplication id and the consumers' key).
- * @throws when the broker cannot be reached at all; every message then counts as failed
+ * Send failures are reported per message in `failed`.
+ * @throws when the queue cannot even be resolved; every message then counts as failed
  */
 export interface EventPublisher {
   publish(messages: readonly OutboxMessage[]): Promise<PublishReport>;

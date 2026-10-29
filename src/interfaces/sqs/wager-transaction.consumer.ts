@@ -15,7 +15,9 @@ import type { ProcessWagerTransactionUseCase } from '../../application/use-cases
 import { DomainError } from '../../domain/shared/domain-error';
 import type { QueueDirectory } from '../../infrastructure/messaging/sqs';
 import { logContext } from '../../infrastructure/observability/log-context';
+import { inSpan, SpanKind } from '../../infrastructure/observability/spans';
 import { WagerTransactionRequestedMessage } from '../contracts/wager-submission';
+import { processWagerTraced } from '../traced-wager-processing';
 
 export interface WagerConsumerOptions {
   readonly queueName: string;
@@ -172,7 +174,23 @@ export class WagerTransactionConsumer {
           correlationId:
             message.MessageAttributes?.correlationId?.StringValue ?? message.MessageId ?? 'sqs',
         },
-        () => this.handle(queueUrl, message),
+        () =>
+          inSpan(
+            `${this.options.queueName} process`,
+            {
+              kind: SpanKind.CONSUMER,
+              attributes: {
+                'messaging.system': 'aws_sqs',
+                'messaging.destination.name': this.options.queueName,
+                'messaging.message.id': message.MessageId ?? '',
+              },
+            },
+            async (span) => {
+              const result = await this.handle(queueUrl, message);
+              span.setAttribute('wagering.message_outcome', result);
+              return result;
+            },
+          ),
       );
       outcomes.push(outcome);
       if (outcome === 'crashed') {
@@ -199,7 +217,7 @@ export class WagerTransactionConsumer {
     };
     logContext.assign(context);
     try {
-      const result = await this.processWager.execute({
+      const result = await processWagerTraced(this.processWager, {
         submission,
         idempotencyKey,
         principal: { kind: 'trusted' },

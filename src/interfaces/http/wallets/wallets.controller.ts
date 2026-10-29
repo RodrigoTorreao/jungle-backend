@@ -1,5 +1,4 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import type { Request } from 'express';
 import { z } from 'zod';
 import { CreateWalletUseCase } from '../../../application/use-cases/create-wallet';
 import { ReconcileWalletUseCase } from '../../../application/use-cases/reconcile-wallet';
@@ -8,6 +7,7 @@ import {
   ListWalletLedgerQuery,
 } from '../../../application/use-cases/wallet-queries';
 import type { LedgerPageView, ReconciliationView, WalletView } from '../../../application/views';
+import { type AuthenticatedRequest, principalOf } from '../auth/auth.guard';
 import { correlationIdOf, MoneyBody, parseRequest, UuidParam } from '../request';
 
 const CreateWalletBody = z.object({ playerId: z.uuid(), initialBalance: MoneyBody }).strict();
@@ -28,9 +28,13 @@ export class WalletsController {
 
   @Post()
   @HttpCode(201)
-  create(@Body() body: unknown, @Req() request: Request): Promise<WalletView> {
+  create(@Body() body: unknown, @Req() request: AuthenticatedRequest): Promise<WalletView> {
     const input = parseRequest(CreateWalletBody, body);
-    return this.createWallet.execute({ ...input, correlationId: correlationIdOf(request) });
+    return this.createWallet.execute({
+      ...input,
+      correlationId: correlationIdOf(request),
+      principal: principalOf(request),
+    });
   }
 
   @Get(':walletId')
@@ -39,12 +43,17 @@ export class WalletsController {
   }
 
   @Get(':walletId/ledger')
-  ledger(@Param('walletId') walletId: string, @Query() query: unknown): Promise<LedgerPageView> {
+  ledger(
+    @Param('walletId') walletId: string,
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<LedgerPageView> {
     const params = parseRequest(LedgerQueryParams, query);
     return this.listLedger.execute({
       walletId: parseRequest(UuidParam, walletId),
       cursor: params.cursor,
       limit: params.limit,
+      principal: principalOf(request),
     });
   }
 
@@ -53,8 +62,12 @@ export class WalletsController {
   @HttpCode(200)
   reconciliation(
     @Param('walletId') walletId: string,
-    @Req() request: Request,
+    @Req() request: AuthenticatedRequest,
   ): Promise<ReconciliationView> {
-    return this.reconcile.execute(parseRequest(UuidParam, walletId), correlationIdOf(request));
+    return this.reconcile.execute(
+      parseRequest(UuidParam, walletId),
+      correlationIdOf(request),
+      principalOf(request),
+    );
   }
 }

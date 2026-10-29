@@ -6,6 +6,7 @@ export const APP_ROLES = [
   'consumer',
   'outbox-publisher',
   'pending-reference-worker',
+  'reconciliation-worker',
 ] as const;
 export type AppRole = (typeof APP_ROLES)[number];
 
@@ -61,9 +62,18 @@ const envSchema = z.object({
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
   PENDING_REFERENCE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1_000),
   PENDING_REFERENCE_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
+  RECONCILIATION_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  RECONCILIATION_SAMPLE_SIZE: z.coerce.number().int().min(1).max(1_000).default(25),
   SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(20_000),
-  /** Only `disabled` exists until the IdP adapter lands (ARCHITECTURE §11). */
-  AUTH_MODE: z.enum(['disabled']).default('disabled'),
+  /** `disabled`: every caller is trusted. `keycloak`: OIDC access tokens (ARCHITECTURE §11). */
+  AUTH_MODE: z.enum(['disabled', 'keycloak']).default('disabled'),
+  /** Expected `iss` (the realm URL as clients see it). */
+  OIDC_ISSUER: z.url().optional(),
+  /** Where the signing keys are fetched; defaults to the issuer's certs endpoint. */
+  OIDC_JWKS_URL: z.url().optional(),
+  OIDC_AUDIENCE: z.string().min(1).default('wagering-api'),
+  OIDC_PROVIDER_CLAIM: z.string().min(1).default('provider_id'),
+  OIDC_BACKOFFICE_ROLE: z.string().min(1).default('wallet-admin'),
   /** Test-only crash injection (refused in production). */
   FAULT_POINTS: faultPointsSchema.default([]),
   FAULT_MODE: z.enum(['throw', 'kill']).default('throw'),
@@ -103,10 +113,21 @@ export interface AppConfig {
     readonly pollIntervalMs: number;
     readonly batchSize: number;
   };
-  readonly shutdownGraceMs: number;
-  readonly auth: {
-    readonly mode: 'disabled';
+  readonly reconciliation: {
+    readonly intervalMs: number;
+    readonly sampleSize: number;
   };
+  readonly shutdownGraceMs: number;
+  readonly auth:
+    | { readonly mode: 'disabled' }
+    | {
+        readonly mode: 'keycloak';
+        readonly issuer: string;
+        readonly jwksUrl: string;
+        readonly audience: string;
+        readonly providerClaim: string;
+        readonly backofficeRole: string;
+      };
   readonly faults: {
     readonly points: readonly FaultPoint[];
     readonly mode: 'throw' | 'kill';
@@ -129,6 +150,9 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   const e = parsed.data;
   if (e.NODE_ENV === 'production' && e.FAULT_POINTS.length > 0) {
     throw new InvalidConfigError('FAULT_POINTS cannot be armed in production');
+  }
+  if (e.AUTH_MODE === 'keycloak' && e.OIDC_ISSUER === undefined) {
+    throw new InvalidConfigError('AUTH_MODE=keycloak requires OIDC_ISSUER');
   }
   return {
     env: e.NODE_ENV,
@@ -158,8 +182,22 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
       pollIntervalMs: e.PENDING_REFERENCE_POLL_INTERVAL_MS,
       batchSize: e.PENDING_REFERENCE_BATCH_SIZE,
     },
+    reconciliation: {
+      intervalMs: e.RECONCILIATION_INTERVAL_MS,
+      sampleSize: e.RECONCILIATION_SAMPLE_SIZE,
+    },
     shutdownGraceMs: e.SHUTDOWN_GRACE_MS,
-    auth: { mode: e.AUTH_MODE },
+    auth:
+      e.AUTH_MODE === 'keycloak' && e.OIDC_ISSUER !== undefined
+        ? {
+            mode: 'keycloak',
+            issuer: e.OIDC_ISSUER,
+            jwksUrl: e.OIDC_JWKS_URL ?? `${e.OIDC_ISSUER}/protocol/openid-connect/certs`,
+            audience: e.OIDC_AUDIENCE,
+            providerClaim: e.OIDC_PROVIDER_CLAIM,
+            backofficeRole: e.OIDC_BACKOFFICE_ROLE,
+          }
+        : { mode: 'disabled' },
     faults: { points: e.FAULT_POINTS, mode: e.FAULT_MODE },
   };
 }

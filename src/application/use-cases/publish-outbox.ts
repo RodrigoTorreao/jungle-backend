@@ -56,8 +56,8 @@ export class PublishOutboxUseCase {
             this.retryPolicy,
           );
         }
-        await scope.outbox.update(message);
       }
+      await scope.outbox.updateAll(due);
       this.metrics.outboxPublish('published', report.published.size);
       this.metrics.outboxPublish('failed', due.length - report.published.size);
       return {

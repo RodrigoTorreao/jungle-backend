@@ -25,6 +25,9 @@ export type ProcessingOutcome =
 
 export type LockConflictType = TransientReason | 'version';
 
+/** Who asked for a reconciliation: an operator (HTTP) or the periodic sampled job. */
+export type ReconciliationTrigger = 'request' | 'sampled';
+
 /** The metric catalogue of ARCHITECTURE §10, as domain-level facts. */
 export interface Metrics {
   /** A new outcome was decided and committed (replays excluded). */
@@ -44,7 +47,7 @@ export interface Metrics {
   lockConflict(type: LockConflictType): void;
   deadLetter(reason: string): void;
   outboxPublish(result: 'published' | 'failed', count: number): void;
-  reconciliationDivergence(): void;
+  reconciliationCheck(trigger: ReconciliationTrigger, consistent: boolean): void;
 }
 
 /** For use cases built without metrics (unit tests, scripts). */
@@ -58,7 +61,7 @@ export const noopMetrics: Metrics = {
   lockConflict: () => {},
   deadLetter: () => {},
   outboxPublish: () => {},
-  reconciliationDivergence: () => {},
+  reconciliationCheck: () => {},
 };
 
 export const APP_LOGGER = Symbol('AppLogger');

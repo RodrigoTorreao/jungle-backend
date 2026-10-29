@@ -6,6 +6,7 @@ import {
   TransientInfrastructureError,
   WalletAlreadyExistsError,
 } from '../../../src/application/errors';
+import { TRUSTED } from '../../../src/application/ports/identity';
 import { WalletOpened } from '../../../src/domain/messaging/events';
 import { InboxMessage } from '../../../src/domain/messaging/inbox-message';
 import { OutboxMessage } from '../../../src/domain/messaging/outbox-message';
@@ -47,6 +48,7 @@ const newWallet = (amount = '100.00') =>
     playerId: ids.next(),
     initialBalance: { amount, currency: 'BRL' },
     correlationId: 'test',
+    principal: TRUSTED,
   });
 
 describe('wallet repository', () => {
@@ -81,6 +83,7 @@ describe('wallet repository', () => {
         playerId: view.playerId,
         initialBalance: { amount: '5.00', currency: 'BRL' },
         correlationId: 'test',
+        principal: TRUSTED,
       }),
     ).rejects.toBeInstanceOf(WalletAlreadyExistsError);
   });

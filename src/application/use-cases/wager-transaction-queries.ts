@@ -1,7 +1,7 @@
-import { ResourceNotFoundError } from '../errors';
+import { ProviderMismatchError, ResourceNotFoundError } from '../errors';
 import type { Principal } from '../ports/identity';
 import type { WagerTransactionReader } from '../ports/persistence';
-import { assertMayActFor, mayReadProvider } from '../services/authorization';
+import { mayReadProvider } from '../services/authorization';
 import { toWagerTransactionView, type WagerTransactionView } from '../views';
 
 /**
@@ -25,7 +25,10 @@ export class GetWagerTransactionQuery {
     externalTransactionId: string,
     principal: Principal,
   ): Promise<WagerTransactionView> {
-    assertMayActFor(principal, providerId);
+    // Read access, not acting: operators may read any provider's transactions.
+    if (!mayReadProvider(principal, providerId)) {
+      throw new ProviderMismatchError();
+    }
     const transaction = await this.reader.findByExternalId(providerId, externalTransactionId);
     if (transaction === undefined) {
       throw new ResourceNotFoundError('Transaction', `${providerId}/${externalTransactionId}`);

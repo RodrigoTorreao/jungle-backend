@@ -35,6 +35,18 @@ describe('loadConfig', () => {
     expect(config.roles).toEqual(['api', 'consumer']);
   });
 
+  test('AUTH_MODE=keycloak derives the JWKS endpoint from the issuer', () => {
+    const issuer = 'http://localhost:8180/realms/wagering';
+    expect(loadConfig({ ...minimal, AUTH_MODE: 'keycloak', OIDC_ISSUER: issuer }).auth).toEqual({
+      mode: 'keycloak',
+      issuer,
+      jwksUrl: `${issuer}/protocol/openid-connect/certs`,
+      audience: 'wagering-api',
+      providerClaim: 'provider_id',
+      backofficeRole: 'wallet-admin',
+    });
+  });
+
   test.each([
     ['missing DATABASE_URL', {}],
     ['non-postgres DATABASE_URL', { DATABASE_URL: 'mysql://localhost/db' }],
@@ -46,7 +58,8 @@ describe('loadConfig', () => {
       'fault points armed in production',
       { ...minimal, NODE_ENV: 'production', FAULT_POINTS: 'before-commit' },
     ],
-    ['an auth mode without an adapter yet', { ...minimal, AUTH_MODE: 'keycloak' }],
+    ['keycloak without an issuer', { ...minimal, AUTH_MODE: 'keycloak' }],
+    ['an unknown auth mode', { ...minimal, AUTH_MODE: 'basic' }],
     ['non-FIFO input queue', { ...minimal, SQS_WAGER_TRANSACTIONS_QUEUE: 'wager-transactions' }],
   ])('rejects %s', (_case, env) => {
     expect(() => loadConfig(env)).toThrow(InvalidConfigError);

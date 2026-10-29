@@ -48,6 +48,27 @@ export class ProviderMismatchError extends ApplicationError {
   }
 }
 
+/** The caller is authenticated but lacks the role the operation requires (backoffice routes). */
+export class ForbiddenError extends ApplicationError {
+  readonly code = 'FORBIDDEN';
+
+  constructor(message = 'This operation requires the backoffice role') {
+    super(message);
+  }
+}
+
+/** The IdP's signing keys cannot be fetched (and none are cached): retry later. */
+export class IdentityProviderUnavailableError extends ApplicationError {
+  readonly code = 'IDENTITY_PROVIDER_UNAVAILABLE';
+
+  constructor(options?: { cause?: unknown }) {
+    super('The identity provider is unavailable');
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
 /** Same Idempotency-Key with a different payload: a conflict, never a replay (RN-14). */
 export class IdempotencyKeyConflictError extends ApplicationError {
   readonly code = FailureCode.IdempotencyKeyConflict;

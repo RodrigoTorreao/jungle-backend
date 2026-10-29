@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import {
   ConcurrencyConflictError,
+  ForbiddenError,
   InvariantBreachError,
   ProviderMismatchError,
   ResourceNotFoundError,
   TransientInfrastructureError,
 } from '../../../src/application/errors';
+import { TRUSTED } from '../../../src/application/ports/identity';
 import {
   type AppLogger,
   type Metrics,
@@ -135,11 +137,14 @@ describe('ReconcileWalletUseCase', () => {
     };
     const metrics: Metrics = {
       ...noopMetrics,
-      reconciliationDivergence: () => {
-        divergences += 1;
+      reconciliationCheck: (_trigger, consistent) => {
+        if (!consistent) divergences += 1;
       },
     };
-    const reader: ReconciliationReader = { snapshot: async () => result };
+    const reader: ReconciliationReader = {
+      snapshot: async () => result,
+      sampleWalletIds: async () => [],
+    };
     return {
       useCase: new ReconcileWalletUseCase(reader, logger, metrics),
       logged,
@@ -149,7 +154,7 @@ describe('ReconcileWalletUseCase', () => {
 
   test('a consistent wallet is reported without logging or counting anything', async () => {
     const { useCase, logged, divergences } = setup(snapshot());
-    const view = await useCase.execute('w-1', 'corr');
+    const view = await useCase.execute('w-1', 'corr', TRUSTED);
     expect(view).toEqual({
       walletId: 'w-1',
       storedBalance: { amount: '90.00', currency: 'BRL' },
@@ -167,7 +172,7 @@ describe('ReconcileWalletUseCase', () => {
     ['the latest entry does not match', { latestEntryMatches: false }],
   ])('a divergence (%s) is logged without amounts and counted', async (_case, overrides) => {
     const { useCase, logged, divergences } = setup(snapshot(overrides));
-    const view = await useCase.execute('w-1', 'corr');
+    const view = await useCase.execute('w-1', 'corr', TRUSTED);
     expect(view.consistent).toBe(false);
     expect(divergences()).toBe(1);
     expect(logged).toHaveLength(1);
@@ -177,6 +182,17 @@ describe('ReconcileWalletUseCase', () => {
 
   test('an unknown wallet is a NOT_FOUND', async () => {
     const { useCase } = setup(undefined);
-    await expect(useCase.execute('w-x', 'corr')).rejects.toBeInstanceOf(ResourceNotFoundError);
+    await expect(useCase.execute('w-x', 'corr', TRUSTED)).rejects.toBeInstanceOf(
+      ResourceNotFoundError,
+    );
+  });
+
+  test('only operators reconcile: a provider token is FORBIDDEN, backoffice is allowed', async () => {
+    const { useCase } = setup(snapshot());
+    await expect(
+      useCase.execute('w-1', 'corr', { kind: 'provider', providerId: 'provider-a' }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    const view = await useCase.execute('w-1', 'corr', { kind: 'backoffice', subject: 'ops' });
+    expect(view.consistent).toBe(true);
   });
 });

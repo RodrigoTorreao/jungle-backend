@@ -2,9 +2,11 @@
  * Transactional outbox relay against real queues (Desafio §11): the committed-but-unpublished
  * scenario, broker failures with retry scheduling, and a crash between publishing and marking.
  */
+
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import { SQL } from 'bun';
+import { TRUSTED } from '../../../src/application/ports/identity';
 import { PublishOutboxUseCase } from '../../../src/application/use-cases/publish-outbox';
 import { WagerTransactionKind } from '../../../src/domain/wagering/wager-transaction-kind';
 import { QueueDirectory } from '../../../src/infrastructure/messaging/sqs';
@@ -81,6 +83,7 @@ describe('committed, then the writer died before publishing', () => {
       playerId: ids.next(),
       initialBalance: { amount: '100.00', currency: 'BRL' },
       correlationId: 'corr-relay',
+      principal: TRUSTED,
     });
     const { transaction } = await applyOperation(
       instanceA.unitOfWork,
@@ -117,6 +120,7 @@ describe('broker failures', () => {
       playerId: ids.next(),
       initialBalance: { amount: '5.00', currency: 'BRL' },
       correlationId: 'corr-retry',
+      principal: TRUSTED,
     });
 
     const broken = new PublishOutboxUseCase(
@@ -152,6 +156,7 @@ describe('crash between publishing and marking (after-publish-before-mark)', () 
       playerId: ids.next(),
       initialBalance: { amount: '7.00', currency: 'BRL' },
       correlationId: 'corr-crash',
+      principal: TRUSTED,
     });
     const crashing = new PublishOutboxUseCase(
       instanceB.unitOfWork,

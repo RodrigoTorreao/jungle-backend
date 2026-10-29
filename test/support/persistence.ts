@@ -144,7 +144,10 @@ export async function postJson(
   return { status: response.status, headers: response.headers, body: await response.json() };
 }
 
-export async function getJson(url: string): Promise<JsonResponse> {
-  const response = await fetch(url);
+export async function getJson(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<JsonResponse> {
+  const response = await fetch(url, { headers });
   return { status: response.status, headers: response.headers, body: await response.json() };
 }

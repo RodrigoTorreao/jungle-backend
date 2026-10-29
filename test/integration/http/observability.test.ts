@@ -83,6 +83,7 @@ describe('GET /metrics', () => {
       'outbox_lag_seconds',
       'outbox_publish_total',
       'pending_reference_transactions',
+      'wallet_reconciliations_total',
       'wallet_reconciliation_divergences_total',
     ]) {
       expect(text).toContain(`# TYPE ${name} `);

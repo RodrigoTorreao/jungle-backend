@@ -4,8 +4,10 @@ import { OutboxMessage } from '../../domain/messaging/outbox-message';
 import { Money, type MoneyProps } from '../../domain/money/money';
 import { WagerTransaction } from '../../domain/wagering/wager-transaction';
 import { Wallet } from '../../domain/wallet/wallet';
+import type { Principal } from '../ports/identity';
 import type { UnitOfWork } from '../ports/persistence';
 import type { Clock, IdGenerator } from '../ports/system';
+import { assertBackoffice } from '../services/authorization';
 import { hashOpeningPayload } from '../services/payload-hasher';
 import { toWalletView, type WalletView } from '../views';
 
@@ -13,6 +15,7 @@ export interface CreateWalletCommand {
   readonly playerId: string;
   readonly initialBalance: MoneyProps;
   readonly correlationId: string;
+  readonly principal: Principal;
 }
 
 /**
@@ -27,6 +30,7 @@ export class CreateWalletUseCase {
   ) {}
 
   async execute(command: CreateWalletCommand): Promise<WalletView> {
+    assertBackoffice(command.principal);
     const initialBalance = Money.from(command.initialBalance);
     const now = this.clock.now();
     const walletId = this.ids.next();

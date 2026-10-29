@@ -6,6 +6,7 @@ import type { WagerResult, WagerTransactionView } from '../../../application/vie
 import { WagerTransactionStatus } from '../../../domain/wagering/wager-transaction-kind';
 import { logContext } from '../../../infrastructure/observability/log-context';
 import { identifier, WagerSubmissionBody } from '../../contracts/wager-submission';
+import { processWagerTraced } from '../../traced-wager-processing';
 import { type AuthenticatedRequest, principalOf } from '../auth/auth.guard';
 import { correlationIdOf, parseRequest, UuidParam } from '../request';
 
@@ -59,7 +60,7 @@ export class WageringController {
     const key = parseRequest(IdempotencyKeyHeader, idempotencyKey);
     const submission = parseRequest(WagerSubmissionBody, body);
     logContext.assign({ walletId: submission.walletId, providerId: submission.providerId });
-    const result = await this.processWager.execute({
+    const result = await processWagerTraced(this.processWager, {
       submission,
       idempotencyKey: key,
       principal: principalOf(request),

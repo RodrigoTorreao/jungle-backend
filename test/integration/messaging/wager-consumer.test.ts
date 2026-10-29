@@ -3,9 +3,11 @@
  * inbox and redelivery (T-I03), retry and DLQ (T-I05), atomicity under an injected failure
  * (T-I02), and a crash after COMMIT but before the ack (T-C05).
  */
+
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import { SQL } from 'bun';
+import { TRUSTED } from '../../../src/application/ports/identity';
 import { ArmedFaultInjector } from '../../../src/infrastructure/system/fault-injectors';
 import { createTestDatabase, type TestDatabase } from '../../support/database';
 import { assertLedgerConsistency } from '../../support/ledger-consistency';
@@ -51,6 +53,7 @@ const newWallet = async (amount = '100.00') => {
     playerId: ids.next(),
     initialBalance: { amount, currency: 'BRL' },
     correlationId: 'test',
+    principal: TRUSTED,
   });
   return { id: view.id, playerId: view.playerId };
 };

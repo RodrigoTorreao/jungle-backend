@@ -2,9 +2,11 @@
  * T-C06 / T-I04: two publishers relaying the same outbox at the same time, from independent
  * connection pools. FOR UPDATE SKIP LOCKED means no row is ever claimed by both.
  */
+
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import { SQL } from 'bun';
+import { TRUSTED } from '../../src/application/ports/identity';
 import type { EventPublisher, PublishReport } from '../../src/application/ports/messaging';
 import { PublishOutboxUseCase } from '../../src/application/use-cases/publish-outbox';
 import type { OutboxMessage } from '../../src/domain/messaging/outbox-message';
@@ -60,6 +62,7 @@ test('every event is claimed and published by exactly one of two concurrent publ
         playerId: ids.next(),
         initialBalance: { amount: '10.00', currency: 'BRL' },
         correlationId: 'tc06',
+        principal: TRUSTED,
       }),
     ),
   );

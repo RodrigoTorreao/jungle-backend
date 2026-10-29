@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { PROVIDER_IDENTITY, type ProviderIdentityPort } from '../../application/ports/identity';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { JwtProviderIdentity } from './jwt-provider-identity';
 import { TrustedProviderIdentity } from './trusted-provider-identity';
 
 /** Picks the identity adapter for the configured AUTH_MODE. */
@@ -14,6 +15,8 @@ import { TrustedProviderIdentity } from './trusted-provider-identity';
         switch (config.auth.mode) {
           case 'disabled':
             return new TrustedProviderIdentity();
+          case 'keycloak':
+            return new JwtProviderIdentity(config.auth);
         }
       },
     },
