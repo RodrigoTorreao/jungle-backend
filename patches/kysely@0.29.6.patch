@@ -1,0 +1,21 @@
+diff --git a/dist/kysely.js b/dist/kysely.js
+index dfc66315db072f215f4a64cc86283dcc3848b376..b41a331b2f4f4b220a7bc00c2063988e5774d604 100644
+--- a/dist/kysely.js
++++ b/dist/kysely.js
+@@ -714,7 +714,15 @@ export class ControlledTransactionBuilder {
+         const settings = { isolationLevel, accessMode };
+         validateTransactionSettings(settings);
+         const connection = await provideControlledConnection(this.#props.executor);
+-        await this.#props.driver.beginTransaction(connection.connection, settings);
++        try {
++            await this.#props.driver.beginTransaction(connection.connection, settings);
++        }
++        catch (error) {
++            // Release the pooled connection when BEGIN fails (e.g. a socket that died while idle);
++            // otherwise it stays checked out forever and the pool slowly runs dry.
++            connection.release();
++            throw error;
++        }
+         return new ControlledTransaction({
+             ...props,
+             connection,
