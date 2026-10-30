@@ -6,6 +6,13 @@ const DEFAULT_ADMIN_URL = 'postgres://postgres:postgres@localhost:5432/postgres'
 const DEFAULT_OWNER_URL = 'postgres://wallet_owner:wallet_owner@localhost:5432/wagering';
 const DEFAULT_APP_URL = 'postgres://wallet_app:wallet_app@localhost:5432/wagering';
 
+// LocalStack defaults, so a plain `bun test` needs no .env. Applied to process.env because the
+// AWS SDK reads credentials from there, and spawned instances inherit it.
+process.env.AWS_ENDPOINT_URL ??= 'http://localhost:4566';
+process.env.AWS_REGION ??= 'us-east-1';
+process.env.AWS_ACCESS_KEY_ID ??= 'test';
+process.env.AWS_SECRET_ACCESS_KEY ??= 'test';
+
 export const TEMPLATE_DATABASE = 'wagering_test_template';
 export const TEST_DATABASE_PREFIX = 'wagering_t_';
 

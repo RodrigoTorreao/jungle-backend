@@ -37,10 +37,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - run: cp .env.example .env
+      # No .env on purpose: the test harness must run on a fresh clone with defaults only.
       - name: Start infrastructure
-        run: docker compose up -d --wait
+        run: docker compose up -d --wait postgres localstack
       - name: Migrations apply and revert on the real database
+        env:
+          MIGRATION_DATABASE_URL: postgres://wallet_owner:wallet_owner@localhost:5432/wagering
         run: |
           bun run migration:up
           bun run migration:down --all
@@ -48,6 +50,9 @@ jobs:
       - run: bun run test:integration
       # Multi-process, SIGKILL and SIGTERM tests: POSIX signals, so Linux only.
       - run: bun run test:concurrency
+      # What an automated reviewer would type: every suite, no preload, no .env.
+      - name: Plain bun test
+        run: bun test
       - name: Container logs
         if: failure()
         run: docker compose logs --no-color
@@ -59,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Build and start the cluster
-        run: docker compose --profile app up -d --build --wait
+        run: docker compose up -d --build --wait
       - name: Smoke test through the load balancer
         run: |
           curl -fsS http://localhost:8080/health/ready
@@ -76,7 +81,7 @@ jobs:
       - name: Load smoke with correctness checks (docs/LOAD_TEST.md)
         run: |
           mkdir -p load/results && chmod 777 load/results # the image runs as user "bun"
-          docker compose --profile app --profile load run --rm \
+          docker compose --profile load run --rm \
             -e PROMETHEUS_URL= -e LOAD_DURATION_SECONDS=10 -e LOAD_WARMUP_SECONDS=2 \
             -e LOAD_VUS=16 -e LOAD_WALLETS=50 -e LOAD_SQS_MESSAGES=500 -e LOAD_SQS_WALLETS=50 \
             loadgen
@@ -84,7 +89,7 @@ jobs:
         env:
           AUTH_MODE: keycloak
         run: |
-          docker compose --profile app --profile auth up -d --wait
+          docker compose --profile auth up -d --wait
           token() {
             curl -fsS http://localhost:8180/realms/wagering/protocol/openid-connect/token \
               -d grant_type=client_credentials -d client_id="$1" -d client_secret="$1-secret" |
@@ -107,7 +112,7 @@ jobs:
           test "$(bet "$other" auth-2)" = 403
           test "$(status localhost:8080/health/ready)" = 200
       - name: Graceful stop of every replica
-        run: docker compose --profile app stop app
+        run: docker compose stop app
       - name: Container logs
         if: failure()
-        run: docker compose --profile app logs --no-color
+        run: docker compose logs --no-color

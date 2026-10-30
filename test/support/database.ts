@@ -1,4 +1,5 @@
 import { SQL } from 'bun';
+import { migrateUp } from '../../src/infrastructure/persistence/migrator';
 import { TEMPLATE_DATABASE, TEST_DATABASE_PREFIX, testEnv, withDatabase } from './test-env';
 
 export interface TestDatabase {
@@ -32,6 +33,9 @@ async function withAdmin<T>(run: (admin: SQL) => Promise<T>): Promise<T> {
  * database with no migrations applied (used by the migration tests themselves).
  */
 export async function createTestDatabase(options: { empty?: boolean } = {}): Promise<TestDatabase> {
+  if (!options.empty) {
+    await ensureTemplate();
+  }
   const name = `${TEST_DATABASE_PREFIX}${Bun.randomUUIDv7().replaceAll('-', '').slice(-16)}`;
   const template = options.empty ? '' : ` TEMPLATE ${quoteIdent(TEMPLATE_DATABASE)}`;
   await withAdmin((admin) =>
@@ -46,6 +50,36 @@ export async function createTestDatabase(options: { empty?: boolean } = {}): Pro
         admin.unsafe(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`),
       ),
   };
+}
+
+const TEMPLATE_LOCK = 7_310_001; // pg_advisory_lock key: one template build at a time
+
+let template: Promise<void> | undefined;
+
+/**
+ * The migrated template every test database is cloned from. Built on first use, so a plain
+ * `bun test` works without the preload; the suites' preload passes `reset` to start from a
+ * clean slate. Idempotent: an existing template only gets its pending migrations.
+ */
+export function ensureTemplate(options: { reset?: boolean } = {}): Promise<void> {
+  template ??= withAdmin(async (admin) => {
+    await admin`SELECT pg_advisory_lock(${TEMPLATE_LOCK})`;
+    try {
+      if (options.reset) {
+        await resetTemplateDatabase();
+      } else {
+        const [existing] = await admin`
+          SELECT 1 AS found FROM pg_database WHERE datname = ${TEMPLATE_DATABASE}`;
+        if (existing === undefined) {
+          await admin.unsafe(`CREATE DATABASE ${quoteIdent(TEMPLATE_DATABASE)} OWNER wallet_owner`);
+        }
+      }
+      await migrateUp(withDatabase(testEnv.ownerUrl, TEMPLATE_DATABASE));
+    } finally {
+      await admin`SELECT pg_advisory_unlock(${TEMPLATE_LOCK})`;
+    }
+  });
+  return template;
 }
 
 /** Drops leftovers from interrupted runs and recreates the empty template database. */
