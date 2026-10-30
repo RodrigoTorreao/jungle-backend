@@ -862,6 +862,8 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 | I-16 | `REFUND`/`ROLLBACK` que chega antes da referência e cuja referência depois chega: fica `PENDING_REFERENCE` até o worker (Sprint 4) | a resolução imediata ("nudge") é parte do worker |
 | I-17 | A chave da inbox é o `messageId` do corpo da mensagem, não o `MessageId` do SQS | o do corpo é do produtor e estável entre reenvios; o do SQS muda a cada envio e não deduplicaria uma mensagem reenviada |
 | I-18 | Conflito de idempotência (mesma chave, payload diferente) e `WALLET_NOT_FOUND` vindos da fila vão para a DLQ, não recebem ack silencioso | não há agregado onde registrar a rejeição; a DLQ é a trilha de auditoria (princípio do §8.2) |
+| I-19 | Valores acima do que `numeric(20,2)` comporta (999 999 999 999 999 999,99) são `400 INVALID_MONEY`, inclusive quando o excesso está no **saldo resultante** de um crédito, e nada é persistido | o limite é verificado em `Money` antes de qualquer escrita, então nunca vira erro do banco (500). Um código de rejeição de negócio próprio exigiria migration nova para um caso fora de qualquer uso real |
+| I-20 | Mesmo `externalTransactionId` com outra `Idempotency-Key` → `409 EXTERNAL_TRANSACTION_ID_CONFLICT` | a chave é a fonte da verdade da idempotência, mas o id externo também é único por provedor no schema; aceitar as duas chaves aplicaria a mesma operação duas vezes |
 
 ---
 
