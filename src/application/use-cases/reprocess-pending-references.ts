@@ -32,7 +32,7 @@ export interface PendingRunReport {
 }
 
 /**
- * Worker for transactions parked in PENDING_REFERENCE (Desafio §7.1, ARCHITECTURE §8.4).
+ * Worker for transactions parked in PENDING_REFERENCE (Desafio.md §7.1, ARCHITECTURE §8.4).
  *
  * Due candidates are read without locks; each one is then handled in its own SQL transaction,
  * taking the wallet lock first (same lock order as every writer) and re-checking under it, so

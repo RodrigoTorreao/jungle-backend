@@ -45,7 +45,7 @@ export type MessageOutcome =
 const MAX_REASON_LENGTH = 256;
 
 /**
- * Consumer of `wager-transactions.fifo` (Desafio §10, ARCHITECTURE §8.2).
+ * Consumer of `wager-transactions.fifo` (Desafio.md §10, ARCHITECTURE §8.2).
  *
  *  - Same use case as HTTP; the inbox row (consumerName, messageId) commits with the effects.
  *  - DeleteMessage only after COMMIT. Dying in between means a redelivery that resolves as an

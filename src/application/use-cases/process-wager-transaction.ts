@@ -57,7 +57,7 @@ export interface ProcessWagerCommand {
   readonly correlationId: string;
   /** What caused this processing: the Idempotency-Key (HTTP) or the messageId (SQS). */
   readonly causationId: string;
-  /** Present when the submission arrived as a queue message (Desafio §10). */
+  /** Present when the submission arrived as a queue message (Desafio.md §10). */
   readonly inbox?: InboxContext | undefined;
   /** Entry point, for metrics. */
   readonly source: MessageSource;
@@ -80,7 +80,7 @@ export interface InboxContext {
 }
 
 /**
- * The one use case behind `POST /wagering/transactions` and the SQS consumer (Desafio §10).
+ * The one use case behind `POST /wagering/transactions` and the SQS consumer (Desafio.md §10).
  *
  * Inside a single SQL transaction (ARCHITECTURE §8.1, §8.2):
  *   [inbox record] → lock wallet → idempotency lookup (replay or conflict) → resolve

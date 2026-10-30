@@ -24,7 +24,7 @@ export const WagerSubmissionFields = {
 
 export const WagerSubmissionBody = z.object(WagerSubmissionFields).strict();
 
-/** SQS message of Desafio §10. `data.idempotencyKey` plays the role of the HTTP header. */
+/** SQS message of Desafio.md §10. `data.idempotencyKey` plays the role of the HTTP header. */
 export const WagerTransactionRequestedMessage = z.object({
   messageId: identifier(256),
   type: z.literal('WagerTransactionRequested'),

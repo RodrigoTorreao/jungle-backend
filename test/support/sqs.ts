@@ -92,7 +92,7 @@ export interface WagerMessageData extends Record<string, unknown> {
   idempotencyKey: string;
 }
 
-/** A message in the shape of Desafio §10. */
+/** A message in the shape of Desafio.md §10. */
 export function wagerMessage(
   data: WagerMessageData,
   overrides: Record<string, unknown> = {},

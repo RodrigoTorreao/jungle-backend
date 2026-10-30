@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
- * Fields every log line of a unit of work carries (Desafio §12). Identifiers only — amounts
+ * Fields every log line of a unit of work carries (Desafio.md §12). Identifiers only — amounts
  * and balances never enter the context.
  */
 export interface LogContext {

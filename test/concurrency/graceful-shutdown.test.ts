@@ -1,7 +1,7 @@
 /**
- * S5-08 / RNF-07: graceful shutdown on a real SIGTERM (Desafio §10: "em SIGTERM, concluir
- * mensagens em andamento ou devolver a visibilidade"). POSIX signals only exist on Linux and
- * macOS — on Windows a "SIGTERM" is a hard kill — so this runs in CI and in Linux containers.
+ * S5-08 / RNF-07: graceful shutdown on a real SIGTERM (Desafio.md §10: "em SIGTERM, concluir
+ * mensagens em andamento ou devolver a visibilidade"). Needs POSIX signal semantics: skipped on
+ * platforms where SIGTERM is a hard kill; always runs in CI (Linux).
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { SQSClient } from '@aws-sdk/client-sqs';

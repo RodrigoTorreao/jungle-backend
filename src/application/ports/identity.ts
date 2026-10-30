@@ -1,5 +1,5 @@
 /**
- * Authentication extension point (Desafio §2, ARCHITECTURE §11).
+ * Authentication extension point (Desafio.md §2, ARCHITECTURE §11).
  *
  * Who is calling a request. Use cases receive the principal and decide what it may do;
  * transports (HTTP guard, SQS consumer) only resolve it.

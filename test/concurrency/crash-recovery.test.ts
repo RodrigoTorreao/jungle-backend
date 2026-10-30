@@ -1,5 +1,5 @@
 /**
- * T-C08 / T-I06 (Desafio §11 and §13): real processes die with SIGKILL at exact points and in
+ * T-C08 / T-I06 (Desafio.md §11 and §13): real processes die with SIGKILL at exact points and in
  * the middle of load, are restarted, and the final state is proven consistent:
  *  - instance "publisher" kills itself after the broker accepted a batch, before marking it;
  *  - instance "consumer" kills itself after COMMIT, before deleting the message;

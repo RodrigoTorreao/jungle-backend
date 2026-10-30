@@ -1,5 +1,5 @@
 /**
- * Dependency outages (Desafio §3: "PostgreSQL e SQS podem ficar temporariamente
+ * Dependency outages (Desafio.md §3: "PostgreSQL e SQS podem ficar temporariamente
  * indisponíveis"; S5-05). A TCP proxy in front of each dependency is cut and restored, which is
  * exactly what the drivers see in a real outage: reset connections, then refused ones.
  */

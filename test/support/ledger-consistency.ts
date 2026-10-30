@@ -14,7 +14,7 @@ interface WalletLedgerCheck {
 }
 
 /**
- * The invariant every integration/concurrency test ends with (Desafio §13):
+ * The invariant every integration/concurrency test ends with (Desafio.md §13):
  *   wallet.balance == balance rebuilt from the ledger (Σ CREDIT − Σ DEBIT)
  * plus: the latest entry matches balance and version, and the per-wallet sequence is gapless.
  * All arithmetic happens in PostgreSQL `numeric`; values are compared as decimal strings.

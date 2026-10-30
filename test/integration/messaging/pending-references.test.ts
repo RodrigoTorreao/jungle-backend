@@ -1,5 +1,5 @@
 /**
- * Out-of-order references (Desafio §7.1, T-C07): parked transactions, the "nudge" when the
+ * Out-of-order references (Desafio.md §7.1, T-C07): parked transactions, the "nudge" when the
  * reference arrives, exponential backoff, attempt limit and TTL — with a hand-driven clock.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Transactional outbox relay against real queues (Desafio §11): the committed-but-unpublished
+ * Transactional outbox relay against real queues (Desafio.md §11): the committed-but-unpublished
  * scenario, broker failures with retry scheduling, and a crash between publishing and marking.
  */
 

@@ -1,6 +1,6 @@
 /**
  * POST /wagering/transactions end to end against the real database (S3-08): every business
- * rule of Desafio §7, idempotency (§9) and the outbox events of each outcome (§11).
+ * rule of Desafio.md §7, idempotency (§9) and the outbox events of each outcome (§11).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { SQL } from 'bun';

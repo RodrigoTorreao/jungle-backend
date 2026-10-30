@@ -13,7 +13,7 @@ export interface OutboxBatchReport {
 }
 
 /**
- * Transactional outbox relay (Desafio §11, ARCHITECTURE §8.3). In one short SQL transaction:
+ * Transactional outbox relay (Desafio.md §11, ARCHITECTURE §8.3). In one short SQL transaction:
  * claim due rows with FOR UPDATE SKIP LOCKED → publish → mark published or schedule a retry →
  * COMMIT. Concurrent publishers never claim the same row; if this process dies anywhere before
  * COMMIT its locks vanish with the connection and another publisher takes the rows over — at

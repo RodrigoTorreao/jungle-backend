@@ -1,5 +1,5 @@
 /**
- * Real parallelism, real PostgreSQL (Desafio §8 and §13, T-C01..T-C03). Requests are fired
+ * Real parallelism, real PostgreSQL (Desafio.md §8 and §13, T-C01..T-C03). Requests are fired
  * together with Promise.all over HTTP, and through the use case from independent connection
  * pools — the same contention two application instances would create.
  */

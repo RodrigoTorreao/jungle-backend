@@ -1,5 +1,5 @@
 /**
- * Operational endpoints (Desafio §9, §12): readiness, the Prometheus catalogue of
+ * Operational endpoints (Desafio.md §9, §12): readiness, the Prometheus catalogue of
  * ARCHITECTURE §10 with values produced by real requests, and readiness during shutdown.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';

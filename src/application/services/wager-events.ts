@@ -11,7 +11,7 @@ import { WagerTransactionStatus } from '../../domain/wagering/wager-transaction-
 import type { Wallet } from '../../domain/wallet/wallet';
 
 /**
- * Integration events of one outcome (Desafio §11): processed (+ balance change when money
+ * Integration events of one outcome (Desafio.md §11): processed (+ balance change when money
  * moved), rejected, or parked waiting for a reference. Shared by every path that decides an
  * outcome — submission over HTTP/SQS and the pending-reference worker.
  */

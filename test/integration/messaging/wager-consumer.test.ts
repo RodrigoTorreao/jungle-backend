@@ -1,5 +1,5 @@
 /**
- * SQS consumer against real LocalStack queues and a real PostgreSQL (Desafio §10, §13):
+ * SQS consumer against real LocalStack queues and a real PostgreSQL (Desafio.md §10, §13):
  * inbox and redelivery (T-I03), retry and DLQ (T-I05), atomicity under an injected failure
  * (T-I02), and a crash after COMMIT but before the ack (T-C05).
  */

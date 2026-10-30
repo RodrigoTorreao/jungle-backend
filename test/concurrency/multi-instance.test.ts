@@ -1,5 +1,5 @@
 /**
- * T-C04 (Desafio §8: "três ou mais instâncias rodam simultaneamente"): three real processes,
+ * T-C04 (Desafio.md §8: "três ou mais instâncias rodam simultaneamente"): three real processes,
  * each with every role (HTTP, consumer, outbox publisher, pending-reference worker), compete
  * for the same wallets over HTTP and SQS at once.
  */

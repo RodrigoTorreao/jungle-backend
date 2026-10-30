@@ -22,7 +22,7 @@ function withTimeout<T>(work: Promise<T>): Promise<T> {
 }
 
 /**
- * GET /health/ready (Desafio §9): PostgreSQL answers `SELECT 1` and every configured queue
+ * GET /health/ready (Desafio.md §9): PostgreSQL answers `SELECT 1` and every configured queue
  * answers `GetQueueAttributes`. Once shutdown starts it reports `shutting-down` (503) so the
  * load balancer stops routing here while in-flight work drains.
  *

@@ -90,7 +90,7 @@ export interface TransactionScope {
 
 /**
  * Runs `work` in a single SQL transaction: inbox, transaction, balance, ledger and outbox are
- * committed together or not at all (Desafio §11).
+ * committed together or not at all (Desafio.md §11).
  */
 export interface UnitOfWork {
   run<T>(work: (scope: TransactionScope) => Promise<T>): Promise<T>;

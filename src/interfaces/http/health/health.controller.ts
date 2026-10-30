@@ -7,7 +7,7 @@ import {
 } from '../../../infrastructure/observability/readiness';
 import { Public } from '../auth/auth.guard';
 
-/** Operational endpoints. Never authenticated (Desafio §2). */
+/** Operational endpoints. Never authenticated (Desafio.md §2). */
 @Public()
 @Controller()
 export class HealthController {
