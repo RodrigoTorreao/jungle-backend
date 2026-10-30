@@ -133,7 +133,7 @@ Profiles opcionais:
 
 ## 3. Camadas e módulos
 
-Arquitetura hexagonal (portas e adaptadores) com DDD tático.
+Arquitetura hexagonal (portas e adaptadores) com DDD.
 
 ```mermaid
 flowchart TB

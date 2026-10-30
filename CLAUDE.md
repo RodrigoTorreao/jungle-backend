@@ -61,7 +61,7 @@ Profiles do Compose: `app` (3 réplicas + nginx), `observability` (Prometheus, G
 
 ## Arquitetura (resumo)
 
-Hexagonal + DDD tático. Regra de dependência:
+Hexagonal + DDD. Regra de dependência:
 
 ```
 interfaces ─┐

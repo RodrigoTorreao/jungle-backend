@@ -17,7 +17,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 
 | | |
 |---|---|
-| 🧱 **Garantias no schema, não só no código** | `saldo == Σ ledger` verificado no `COMMIT` por *constraint trigger* diferido; lançamentos encadeados (`balance_before` = `balance_after` anterior), imutáveis por trigger e sem `UPDATE`/`DELETE` para o role da aplicação; `CHECK (saldo ≥ 0)`; unicidade de idempotência e de inbox por índice |
+| 🧱 **Garantias no banco de dados** | `saldo == Σ ledger` verificado no `COMMIT` por *constraint trigger* diferido; lançamentos encadeados (`balance_before` = `balance_after` anterior), imutáveis por trigger e sem `UPDATE`/`DELETE` para o role da aplicação; `CHECK (saldo ≥ 0)`; unicidade de idempotência e de inbox por índice |
 | 🔁 **Idempotência persistente** | chave por provedor + hash canônico do payload + snapshot da resposta: reenvio devolve o resultado original; mesma chave com outro payload é `409`. Nenhum cache em memória |
 | 🔒 **Concorrência por wallet** | `SELECT … FOR UPDATE` na linha da wallet, guarda de versão e ordem global de locks (sem deadlock, sem lock global). Hot wallet com 32 requisições simultâneas: **zero** lock timeouts |
 | 📬 **Mensageria at-least-once correta** | inbox e outbox na mesma transação SQL do efeito financeiro; relay com `FOR UPDATE SKIP LOCKED` e envio paralelo que preserva a ordem por wallet; DLQ, backoff, referências fora de ordem resolvidas por worker |
@@ -49,7 +49,7 @@ flowchart LR
     A1 -. OTLP .-> JG["Jaeger"]
 ```
 
-Hexagonal com DDD tático: o domínio é TypeScript puro (sem framework, ORM ou SDK); casos de uso dependem de portas; PostgreSQL, SQS, Keycloak e Prometheus são adaptadores. HTTP e SQS chamam **o mesmo** caso de uso.
+Arquitetura hexagonal com DDD: o domínio é TypeScript puro (sem framework, ORM ou SDK); casos de uso dependem de portas; PostgreSQL, SQS, Keycloak e Prometheus são adaptadores. HTTP e SQS chamam **o mesmo** caso de uso.
 
 **Uma aposta, do início ao fim:**
 
