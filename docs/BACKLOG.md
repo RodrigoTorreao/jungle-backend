@@ -3,7 +3,7 @@
 > Plano high-level para seguir como backlog. Os IDs entre colchetes (`[RF-H06]`, `[T-C02]`…) apontam para o [OVERVIEW.md](OVERVIEW.md).
 > Marque `[x]` ao concluir um item. Quando uma decisão mudar durante a execução, atualize o [ARCHITECTURE.md](../ARCHITECTURE.md) no mesmo PR.
 
-**Ordem de prioridade:** o que vale pontos e o que é eliminatório vem primeiro (correção financeira, concorrência, idempotência, mensageria). Autenticação vale 0 pontos e fica para o fim, com timebox.
+**Ordem de prioridade:** primeiro o que é crítico e não negociável (correção financeira, concorrência, idempotência, mensageria). Autenticação é opcional e fica para o fim, com escopo limitado.
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,7 @@ flowchart LR
     S2 --> S3["S3 Núcleo de<br/>wagering"]
     S3 --> S4["S4 Mensageria<br/>SQS e outbox"]
     S4 --> S5["S5 Multi-instância,<br/>falhas e observabilidade"]
-    S5 --> S6["S6 Diferenciais"]
+    S5 --> S6["S6 Requisitos<br/>opcionais"]
     S6 --> S7["S7 Docs, demo<br/>e polimento"]
 ```
 
@@ -66,7 +66,7 @@ flowchart LR
 
 ## Sprint 2 — Schema e persistência
 
-**Objetivo:** o banco é a última linha de defesa — todas as garantias da seção 6 do desafio aplicadas no schema.
+**Objetivo:** o banco é a última linha de defesa — todas as garantias da seção 6 da especificação aplicadas no schema.
 
 - [x] **S2-01** Roles `wallet_owner` (migrations) e `wallet_app` (runtime, grants mínimos) via init do Postgres [D-09] — antecipado no Sprint 0 (init do Compose + migration `bootstrap`)
 - [x] **S2-02** Migration `wallets` (`UNIQUE (player_id, currency)`, `CHECK balance >= 0`, `CHECK version >= 1`, formato da moeda)
@@ -99,7 +99,7 @@ flowchart LR
 - [x] **S3-08** Testes de integração de todas as regras de negócio contra o banco real (inclui reversões, overdraw de reversão, referência de outro round/player)
 - [x] **S3-09** Concorrência: T-C01 (50x a mesma aposta), T-C02 (100 vs 80+80), T-C03 (wallets distintas) via HTTP real e via use case direto com pools independentes
 
-**Critério de saída:** cenário obrigatório da seção 8 do desafio passa de forma determinística em 100 execuções seguidas.
+**Critério de saída:** cenário obrigatório da seção 8 da especificação passa de forma determinística em 100 execuções seguidas.
 
 ---
 
@@ -133,11 +133,11 @@ flowchart LR
 - [x] **S5-07** Teste de reinício: `docker compose restart`/`kill -9` no meio da carga → consistência final comprovada [T-C08, T-I06]
 - [x] **S5-08** Shutdown gracioso testado com `SIGTERM` real em container Linux [RNF-07]
 
-**Critério de saída:** todas as suítes obrigatórias (seção 13 do desafio) verdes.
+**Critério de saída:** todas as suítes obrigatórias (seção 13 da especificação) verdes.
 
 ---
 
-## Sprint 6 — Diferenciais
+## Sprint 6 — Requisitos opcionais
 
 **Objetivo:** ir além, sem comprometer o que já está correto. Cada item tem timebox.
 
@@ -146,17 +146,19 @@ flowchart LR
 - [x] **S6-03** Keycloak no Compose (profile `auth`) com realm importado; `JwtProviderIdentity` (JWKS via `jose`), `providerId` do token × body, role `wallet-admin` exigida em criar wallet, ledger e reconciliação; `AUTH_MODE=disabled` para testes [D-04]
 - [x] **S6-04** Job periódico de reconciliação por amostragem [D-07]
 - [x] **S6-05** OpenTelemetry (traces) — somente se a instrumentação funcionar bem sob Bun [D-05]
-- [ ] **S6-06** *(stretch)* Ledger de partidas dobradas com conta da casa por provedor [D-06] — não feito: fora do timebox; o ledger de lançamento único com as garantias no schema atende ao enunciado (ARCHITECTURE §16)
+- [ ] **S6-06** *(stretch)* Ledger de partidas dobradas com conta da casa por provedor [D-06] — não feito: fora do timebox; o ledger de lançamento único com as garantias no schema atende à especificação (ARCHITECTURE §16)
 
 ---
 
 ## Sprint 7 — Documentação, demo e polimento
 
-- [ ] **S7-01** `README.md`: pré-requisitos, setup, comandos, como rodar cada suíte, troubleshooting (Windows/WSL2)
-- [ ] **S7-02** `ARCHITECTURE.md` final: ADRs atualizados, trade-offs, limitações conhecidas, resultados do teste de carga
-- [ ] **S7-03** Script de demo para a apresentação (cenário 100 vs 80+80, 50x paralelo, crash antes do ack, referência fora de ordem) [D-10]
-- [ ] **S7-04** Revisão final contra o checklist de falhas eliminatórias do OVERVIEW
-- [ ] **S7-05** Limpeza: código morto, TODOs, consistência de nomes
+- [x] **S7-01** `README.md`: pré-requisitos, setup, comandos, como rodar cada suíte, troubleshooting
+- [x] **S7-02** `ARCHITECTURE.md` final: ADRs atualizados, trade-offs, limitações conhecidas, resultados do teste de carga
+- [x] **S7-03** Script de demonstração (cenário 100 vs 80+80, 50x paralelo, crash antes do ack, referência fora de ordem) [D-10]
+- [x] **S7-04** Revisão final contra o checklist de invariantes não negociáveis do OVERVIEW
+- [x] **S7-05** Limpeza: código morto, TODOs, consistência de nomes
+- [x] **S7-06** OpenAPI 3 gerado dos schemas zod (`z.toJSONSchema`, uma fonte só para validação e documentação): todas as rotas, todos os status de cada uma (problem+json, `failureCode`), header `Idempotency-Key`, segurança OAuth2 client credentials no Keycloak e rotas de backoffice; servido em `/docs` (`@Public()`); **teste de contrato**: toda rota do Nest está na spec, e as respostas reais dos testes de integração validam contra os schemas declarados
+- [x] **S7-07** Arquivo `.http` versionado com os cenários manuais encadeados: criar wallet → BET → replay → mesma chave com outro payload (409) → REFUND antes da BET (202) → BET → REFUND resolvido; variante com token do Keycloak. Sem collection Postman (o Postman importa a spec da S7-06)
 
 ---
 
@@ -166,7 +168,7 @@ flowchart LR
 |---|---|---|
 | MikroORM (CLI/migrations/metadata) com atrito sob Bun | Alto | Spike no S0-05; usar `EntitySchema` com tipos explícitos (sem depender de `reflect-metadata`/`ts-morph`); fallback: rodar CLI de migration com Node só para o comando, documentado |
 | Instrumentação OTel não compatível com Bun | Baixo | É opcional; manual spans ou pular |
-| Sinais POSIX (`SIGTERM`, `SIGKILL`) no Windows | Médio | Testes de crash/shutdown rodam em containers Linux / WSL2 / CI |
+| Sinais POSIX (`SIGTERM`, `SIGKILL`) sem a mesma semântica em todas as plataformas | Médio | Testes de crash/shutdown rodam em Linux (CI) |
 | Diferenças do LocalStack vs SQS real (FIFO, redrive) | Médio | Testar redrive explicitamente; documentar comportamento observado |
 | Testes de concorrência flaky | Alto | Barreiras explícitas, `waitFor` com timeout, sem `sleep`; rodar 100x no CI antes de considerar pronto |
-| Timebox estourar em diferenciais | Médio | Diferenciais só depois do S5 verde; auth com timebox rígido |
+| Escopo estourar em requisitos opcionais | Médio | Opcionais só depois do S5 verde; auth com escopo rígido |

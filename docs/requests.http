@@ -1,0 +1,145 @@
+### Cenários manuais encadeados — formato REST Client (VS Code; também abre no JetBrains HTTP Client)
+### Pré-requisito: `docker compose up -d --build --wait` (AUTH_MODE=disabled, API em :8080).
+### Execute na ordem: cada passo usa o resultado do anterior.
+
+@baseUrl = http://localhost:8080
+@provider = provider-a
+
+### 1. Abrir uma wallet com 100.00 BRL
+# @name wallet
+POST {{baseUrl}}/wallets
+Content-Type: application/json
+
+{
+  "playerId": "{{$guid}}",
+  "initialBalance": { "amount": "100.00", "currency": "BRL" }
+}
+
+### 2. BET de 25.00 → 200 PROCESSED, saldo 75.00
+# @name bet
+@betId = bet-{{$timestamp}}-{{$randomInt 1000 9999}}
+POST {{baseUrl}}/wagering/transactions
+Content-Type: application/json
+Idempotency-Key: {{provider}}:{{betId}}
+
+{
+  "providerId": "{{provider}}",
+  "externalTransactionId": "{{betId}}",
+  "playerId": "{{wallet.response.body.playerId}}",
+  "walletId": "{{wallet.response.body.id}}",
+  "roundId": "round-1",
+  "gameId": "demo-game",
+  "kind": "BET",
+  "money": { "amount": "25.00", "currency": "BRL" }
+}
+
+### 3. Reenvio idêntico → 200 com "idempotentReplay": true; o saldo continua 75.00
+POST {{baseUrl}}/wagering/transactions
+Content-Type: application/json
+Idempotency-Key: {{bet.request.headers.Idempotency-Key}}
+
+{
+  "providerId": "{{provider}}",
+  "externalTransactionId": "{{bet.request.body.$.externalTransactionId}}",
+  "playerId": "{{wallet.response.body.playerId}}",
+  "walletId": "{{wallet.response.body.id}}",
+  "roundId": "round-1",
+  "gameId": "demo-game",
+  "kind": "BET",
+  "money": { "amount": "25.00", "currency": "BRL" }
+}
+
+### 4. Mesma chave com outro valor → 409 IDEMPOTENCY_KEY_CONFLICT (não é replay)
+POST {{baseUrl}}/wagering/transactions
+Content-Type: application/json
+Idempotency-Key: {{bet.request.headers.Idempotency-Key}}
+
+{
+  "providerId": "{{provider}}",
+  "externalTransactionId": "{{bet.request.body.$.externalTransactionId}}",
+  "playerId": "{{wallet.response.body.playerId}}",
+  "walletId": "{{wallet.response.body.id}}",
+  "roundId": "round-1",
+  "gameId": "demo-game",
+  "kind": "BET",
+  "money": { "amount": "26.00", "currency": "BRL" }
+}
+
+### 5. REFUND de uma aposta que ainda não chegou → 202 PENDING_REFERENCE
+# @name lateRefund
+@lateBetId = late-bet-{{$timestamp}}-{{$randomInt 1000 9999}}
+POST {{baseUrl}}/wagering/transactions
+Content-Type: application/json
+Idempotency-Key: {{provider}}:refund-of-{{lateBetId}}
+
+{
+  "providerId": "{{provider}}",
+  "externalTransactionId": "refund-of-{{lateBetId}}",
+  "playerId": "{{wallet.response.body.playerId}}",
+  "walletId": "{{wallet.response.body.id}}",
+  "roundId": "round-2",
+  "gameId": "demo-game",
+  "kind": "REFUND",
+  "money": { "amount": "10.00", "currency": "BRL" },
+  "referenceExternalTransactionId": "{{lateBetId}}"
+}
+
+### 6. A aposta referenciada chega → 200; o worker resolve o REFUND logo em seguida
+POST {{baseUrl}}/wagering/transactions
+Content-Type: application/json
+Idempotency-Key: {{provider}}:{{lateBetId}}
+
+{
+  "providerId": "{{provider}}",
+  "externalTransactionId": "{{lateBetId}}",
+  "playerId": "{{wallet.response.body.playerId}}",
+  "walletId": "{{wallet.response.body.id}}",
+  "roundId": "round-2",
+  "gameId": "demo-game",
+  "kind": "BET",
+  "money": { "amount": "10.00", "currency": "BRL" }
+}
+
+### 7. O REFUND agora está PROCESSED; saldo de volta a 75.00
+GET {{baseUrl}}/wagering/transactions/{{lateRefund.response.body.transactionId}}
+
+### 8. Saldo, ledger e reconciliação (saldo == ledger)
+GET {{baseUrl}}/wallets/{{wallet.response.body.id}}
+
+###
+GET {{baseUrl}}/wallets/{{wallet.response.body.id}}/ledger?limit=20
+
+###
+POST {{baseUrl}}/wallets/{{wallet.response.body.id}}/reconciliation
+
+### 9. BET acima do saldo → 422 REJECTED, INSUFFICIENT_FUNDS (persistida)
+@bigBetId = big-bet-{{$timestamp}}-{{$randomInt 1000 9999}}
+POST {{baseUrl}}/wagering/transactions
+Content-Type: application/json
+Idempotency-Key: {{provider}}:{{bigBetId}}
+
+{
+  "providerId": "{{provider}}",
+  "externalTransactionId": "{{bigBetId}}",
+  "playerId": "{{wallet.response.body.playerId}}",
+  "walletId": "{{wallet.response.body.id}}",
+  "roundId": "round-3",
+  "gameId": "demo-game",
+  "kind": "BET",
+  "money": { "amount": "500.00", "currency": "BRL" }
+}
+
+### ---------------------------------------------------------------------------------------------
+### Com autenticação: `AUTH_MODE=keycloak docker compose --profile auth up -d --build --wait`
+### Pegue um token e envie como `Authorization: Bearer <token>` nas requisições acima.
+### provider-a / provider-b → operações de aposta; backoffice → wallets, ledger e reconciliação.
+
+# @name token
+POST http://localhost:8180/realms/wagering/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=backoffice&client_secret=backoffice-secret
+
+###
+GET {{baseUrl}}/wallets/{{wallet.response.body.id}}/ledger
+Authorization: Bearer {{token.response.body.access_token}}

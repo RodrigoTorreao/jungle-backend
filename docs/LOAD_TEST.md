@@ -1,6 +1,6 @@
 # Teste de carga
 
-> Diferencial D-01 do desafio. Pedido: `bun run test:load`, com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos de concorrência e outbox lag. Não há meta de RPS. Aqui, a análise vale mais que o número.
+> Requisito opcional D-01: `bun run test:load`, com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos de concorrência e outbox lag. Não há meta de RPS: o objetivo é um experimento reproduzível e uma análise honesta do que limita o sistema.
 
 ## Resumo
 
@@ -23,10 +23,10 @@ Achados:
 
 ```bash
 # cluster: 3 réplicas atrás do nginx + Prometheus/Grafana (contadores do lado do servidor)
-docker compose --profile app --profile observability up -d --build --wait
+docker compose --profile observability up -d --build --wait
 
-# recomendado: gerador dentro da rede do Compose (sem o relay de portas do WSL no caminho)
-docker compose --profile app --profile observability --profile load run --rm loadgen
+# recomendado: gerador dentro da rede do Compose (sem o encaminhamento de portas do host no caminho)
+docker compose --profile observability --profile load run --rm loadgen
 
 # alternativa: a partir do host, contra http://localhost:8080
 PROMETHEUS_URL=http://localhost:9090 bun run test:load
@@ -40,6 +40,7 @@ PROMETHEUS_URL=http://localhost:9090 bun run test:load
 | `LOAD_WALLETS` | 500 | wallets do cenário uniforme |
 | `LOAD_SQS_MESSAGES` / `LOAD_SQS_WALLETS` | 5000 / 200 | tamanho da rajada e número de grupos FIFO |
 | `LOAD_TARGET_URL`, `LOAD_DATABASE_URL`, `PROMETHEUS_URL` | Compose | alvo, banco (só leitura, para lag e correção) e Prometheus (opcional) |
+| `LOAD_PURGE_EVENTS` | `true` | esvazia `wagering-events.fifo` antes da rodada: não há consumidor de eventos neste ambiente, e o acúmulo degrada o LocalStack (DL-030) |
 
 O alvo precisa rodar com `AUTH_MODE=disabled`. A validação de token é local, com JWKS em cache, e não é o que este teste mede. Cada execução imprime um JSON por cenário e grava tudo em `load/results/<timestamp>.json`, que fica fora do git. O CI roda uma versão curta (10 s, 500 mensagens) no job `cluster`, só pelas checagens de correção.
 
@@ -47,15 +48,15 @@ O alvo precisa rodar com `AUTH_MODE=disabled`. A validação de token é local, 
 
 | Item | Valor |
 |---|---|
-| Máquina | Intel Core i5-14600KF (6P + 8E núcleos, 20 threads), 16 GB de RAM, Windows 11 |
-| Containers | Docker Engine 29.3 dentro do WSL2 (Ubuntu): 20 vCPUs e ~7,7 GB visíveis para o Linux |
+| Máquina | desktop Intel Core i5-14600KF (6P + 8E núcleos, 20 threads), 16 GB de RAM |
+| Containers | Docker Engine 29.3 numa VM Linux: 20 vCPUs e ~7,7 GB visíveis para os containers |
 | Aplicação | 3 réplicas (`APP_ROLES=all`, `NODE_ENV=production`, pool de 10 conexões cada) atrás do nginx 1.27 (round robin, keepalive) |
-| PostgreSQL | 17-alpine, configuração padrão (`max_connections=300`), volume no disco virtual do WSL |
+| PostgreSQL | 17-alpine, configuração padrão (`max_connections=300`), volume no disco virtual da VM |
 | SQS | LocalStack 4: emulador em processo único, não é o serviço da AWS |
 | Gerador | `load/run.ts` em container Bun na mesma rede, falando com o nginx (`http://lb:8080`) |
 | Observabilidade | Prometheus 3.5 com scrape a cada 5 s, descobrindo as réplicas por DNS; tracing desligado |
 
-Tudo roda na mesma máquina: gerador, nginx, réplicas, banco e broker disputam a mesma CPU, junto com o próprio Windows. Os números servem para comparar versões e configurações entre si. Não são a capacidade de um ambiente de produção.
+Tudo roda na mesma máquina: gerador, nginx, réplicas, banco e broker disputam a mesma CPU, junto com o sistema operacional do host. Os números servem para comparar versões e configurações entre si. Não são a capacidade de um ambiente de produção.
 
 ## 3. Metodologia
 
@@ -161,9 +162,9 @@ O teste unitário `sqs-event-publisher.test.ts` cobre a ordem por agregado e a f
 - Ao dobrar as réplicas, o PostgreSQL vai de ~200% para ~350% de CPU sem ganho de vazão, e o LocalStack fica em ~110% (um processo).
 
 Com o que foi medido, não dá para separar qual componente compartilhado limita primeiro. Os candidatos:
-- o PostgreSQL, com commit síncrono no disco virtual do WSL e a outbox recebendo ~1000 inserts/s mais as atualizações;
+- o PostgreSQL, com commit síncrono no disco virtual da VM e a outbox recebendo ~1000 inserts/s mais as atualizações;
 - o emulador de SQS, um processo só;
-- a CPU do host, que também roda o Windows.
+- a CPU do host, compartilhada com o sistema operacional.
 
 Próximos passos para separar: `pg_stat_statements` e `pg_stat_wal` durante a carga, perfil de CPU de uma réplica, e o mesmo teste com PostgreSQL e SQS em máquinas separadas (ou SQS real). A conclusão que o experimento sustenta: **a aplicação escala horizontalmente sem perder correção** (6 réplicas, zero divergências), e o limite neste host está fora dela.
 
@@ -187,9 +188,9 @@ O que importa para correção: as ~250 duplicatas de cada execução foram absor
 ## 6. Ameaças à validade
 
 - **Uma máquina só.** Gerador, nginx, réplicas, PostgreSQL e LocalStack competem por CPU, memória e disco. Durante as execuções 2 e 3, a mesma máquina também rodou suítes de teste e um spike; isso provavelmente explica parte da variação (441–523 req/s).
-- **LocalStack não é o SQS.** Latência, vazão e limites são do emulador.
-- **Disco do WSL.** O fsync no disco virtual tem outro custo que um SSD dedicado ou um volume de nuvem.
+- **LocalStack não é o SQS.** Latência, vazão e limites são do emulador. Ele também degrada com o acúmulo: sem consumidor, `wagering-events.fifo` chegou a 538 mil mensagens e o relay da outbox passou a travar por dezenas de segundos. Cada rodada deve começar com a fila de eventos vazia (DL-030).
+- **Disco virtual.** O fsync no disco virtual tem outro custo que um SSD dedicado ou um volume de nuvem.
 - **Mix favorável.** Saldos grandes geram poucas rejeições, e os reenvios são idênticos, então não há conflitos `409` sob carga. Esses caminhos têm testes próprios de integração e concorrência.
-- **Sem autenticação e sem tracing** durante a medição.
+- **Sem autenticação e sem tracing** durante a medição. Num A/B limpo, tracing de 100% das requisições custou 12% de throughput (416 → 368 req/s) sem afetar a outbox; o Compose amostra 10% por padrão (DL-029).
 - **Contadores do Prometheus** com `increase()` são aproximados. Os números exatos de correção vêm do banco.
 - **Closed loop** mede capacidade, não latência sob taxa fixa (§3).

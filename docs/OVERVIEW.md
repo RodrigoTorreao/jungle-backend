@@ -1,6 +1,6 @@
 # Visão Geral — Distributed Wagering Processor
 
-> Documento de escopo. Consolida **tudo** que o desafio ([Desafio.md](../Desafio.md)) exige e os diferenciais que vamos entregar.
+> Documento de escopo. Consolida os requisitos da especificação ([Desafio.md](../Desafio.md)) e os requisitos opcionais implementados.
 > Cada item tem um ID estável, usado no [BACKLOG.md](BACKLOG.md) e nos testes para rastreabilidade.
 > Decisões técnicas e seus porquês ficam no [ARCHITECTURE.md](../ARCHITECTURE.md).
 
@@ -10,9 +10,11 @@
 
 Um serviço financeiro que recebe operações de apostas (`BET → WIN | LOSS | REFUND | ROLLBACK`) de vários provedores — por **HTTP** e por **SQS** —, com entrega **at-least-once**, mensagens **duplicadas**, **fora de ordem** e **concorrentes**, rodando em **várias instâncias**, e que precisa continuar **financeiramente correto**: nunca duplica crédito/débito, nunca perde evento confirmado, nunca deixa saldo negativo.
 
-## 2. Como seremos avaliados
+## 2. Critérios de qualidade
 
-| Área | Pts | Onde mora a resposta |
+Peso relativo de cada área, conforme a especificação, e onde cada uma é atendida.
+
+| Área | Peso | Onde é atendida |
 |---|---:|---|
 | Correção financeira | 20 | `Money` (bigint), ledger imutável, constraints de aritmética, reconciliação |
 | Concorrência | 20 | `SELECT … FOR UPDATE` por wallet + `version` + `CHECK (balance >= 0)` |
@@ -23,16 +25,18 @@ Um serviço financeiro que recebe operações de apostas (`BET → WIN | LOSS | 
 | Observabilidade | 5 | logs JSON com contexto, métricas Prometheus, health live/ready |
 | Documentação | 5 | `README.md` + `ARCHITECTURE.md` |
 
-### Falhas eliminatórias (checklist permanente)
+### Invariantes não negociáveis (checklist permanente)
 
-- [ ] Nenhum `number`/`float` para dinheiro (lint + revisão)
-- [ ] Nenhum saldo negativo por race (CHECK no banco + teste 50x paralelo)
-- [ ] Nenhum débito/crédito duplicado (UNIQUE no banco + testes de redelivery)
-- [ ] Idempotência 100% persistente (nenhum cache em memória como garantia)
-- [ ] Correto com múltiplas instâncias (teste com ≥ 3 processos)
-- [ ] Nenhum evento publicado antes do commit (outbox)
-- [ ] Ledger auditável e imutável (trigger + `REVOKE UPDATE, DELETE`)
-- [ ] Testes de integração usam PostgreSQL e SQS reais
+- [x] Nenhum `number`/`float` para dinheiro (lint + revisão)
+- [x] Nenhum saldo negativo por race (CHECK no banco + teste 50x paralelo)
+- [x] Nenhum débito/crédito duplicado (UNIQUE no banco + testes de redelivery)
+- [x] Idempotência 100% persistente (nenhum cache em memória como garantia)
+- [x] Correto com múltiplas instâncias (teste com ≥ 3 processos)
+- [x] Nenhum evento publicado antes do commit (outbox)
+- [x] Ledger auditável e imutável (triggers + role sem `UPDATE`/`DELETE`)
+- [x] Testes de integração usam PostgreSQL e SQS reais
+
+Evidência de cada item: [§11 Conformidade](#11-conformidade).
 
 ---
 
@@ -43,8 +47,7 @@ Um serviço financeiro que recebe operações de apostas (`BET → WIN | LOSS | 
 | Ferramenta | Versão | Uso |
 |---|---|---|
 | **Bun** | 1.4.4 (fixada em `packageManager` e no CI) | runtime, package manager, test runner |
-| **Docker Desktop** + **Compose v2** | recente | PostgreSQL, LocalStack, Keycloak, Prometheus, Grafana, múltiplas instâncias da app |
-| **WSL2** (Windows) | — | backend do Docker; recomendado também para rodar os testes de crash/SIGTERM (sinais POSIX não existem nativamente no Windows) |
+| **Docker Engine** + **Compose v2** | recente | PostgreSQL, LocalStack, Keycloak, Prometheus, Grafana, Jaeger, múltiplas instâncias da app |
 | **Git** | — | versionamento |
 | `awslocal` / AWS CLI *(opcional)* | — | inspeção manual das filas |
 | `psql` *(opcional)* | — | inspeção manual do banco |
@@ -58,7 +61,7 @@ Um serviço financeiro que recebe operações de apostas (`BET → WIN | LOSS | 
 | Framework | NestJS |
 | Banco | PostgreSQL (17) |
 | Mensageria | AWS SQS via **LocalStack** |
-| ORM | **MikroORM** (preferencial do desafio) |
+| ORM | **MikroORM** (preferencial na especificação) |
 | Orquestração local | Docker Compose |
 | Migrations | versionadas e reversíveis (`up`/`down`) |
 
@@ -205,20 +208,20 @@ Um serviço financeiro que recebe operações de apostas (`BET → WIN | LOSS | 
 
 ---
 
-## 8. Diferenciais que vamos entregar
+## 8. Requisitos opcionais
 
-| ID | Diferencial | Prioridade |
+| ID | Item | Prioridade |
 |---|---|---|
 | D-01 | Teste de carga `bun run test:load` com relatório (ambiente, metodologia, throughput, p50/p95/p99, erros, conflitos, outbox lag) | Alta |
 | D-02 | Garantia **"saldo == ledger" no schema** via constraint trigger diferido + encadeamento de `balance_before/after` | Alta |
 | D-03 | Prometheus + Grafana provisionados no Compose (dashboard pronto) | Média |
-| D-04 | Autenticação com **Keycloak** (OIDC, client credentials por provedor, role de backoffice) | Média (vale 0 pts — timebox) |
+| D-04 | Autenticação com **Keycloak** (OIDC, client credentials por provedor, role de backoffice) | Média (opcional, escopo limitado) |
 | D-05 | OpenTelemetry (traces HTTP → use case → SQL → SQS) | Baixa |
 | D-06 | Ledger de partidas dobradas (conta da casa/provedor) | Baixa (stretch) |
 | D-07 | Job periódico de reconciliação por amostragem | Média |
 | D-08 | CI (GitHub Actions) rodando unit + integração + concorrência com Compose | Média |
 | D-09 | Roles de banco separados (owner de migration × app com grants mínimos) | Alta (barato e reforça R-05/R-09) |
-| D-10 | Script de demo para a apresentação (cenários da seção 8 e crash recovery ao vivo) | Média |
+| D-10 | Script de demonstração (cenários da seção 8 e crash recovery ao vivo) | Média |
 
 ## 9. Entregáveis
 
@@ -234,3 +237,23 @@ Um serviço financeiro que recebe operações de apostas (`BET → WIN | LOSS | 
 - Cadastro de jogadores/usuários próprio (identidade fica no IdP).
 - UI/backoffice.
 - Alta disponibilidade real do PostgreSQL/SQS (fora do Compose local).
+
+## 11. Conformidade
+
+Revisão final (S7-04): cada invariante não negociável e cada restrição da especificação, com o mecanismo e a evidência que a sustentam. Todos os testes citados rodam no CI.
+
+| Invariante / restrição | Mecanismo | Evidência |
+|---|---|---|
+| Dinheiro nunca é `number`, `float` ou `double` | `Money` em `bigint` de centavos; `numeric(20,2)`; Biome proíbe `Number`, `parseFloat`, `parseInt` | `test/unit/domain/money.test.ts`; `biome.json` (`noRestrictedGlobals`); comparações de saldo em `numeric` no PostgreSQL |
+| Nenhum saldo negativo por race | `SELECT … FOR UPDATE` por wallet + `CHECK (balance_amount >= 0)` + `CHECK (balance_after >= 0)` | `test/concurrency/wagering.test.ts` (T-C01, T-C02); `schema-constraints.test.ts` |
+| Nenhum débito ou crédito duplicado | `UNIQUE (provider_id, idempotency_key)`, `UNIQUE (provider_id, external_transaction_id)`, um lançamento por transação, uma reversão por referência, inbox `(consumer_name, message_id)` | `schema-constraints.test.ts`; `test/integration/http/wagering.test.ts`; `wager-consumer.test.ts`; T-C01 (50× em paralelo) |
+| Idempotência só no banco | chave, hash canônico e snapshot da resposta em `wager_transactions`; nenhum cache em memória | replay e conflito por HTTP e SQS (`wagering.test.ts`, `wager-consumer.test.ts`); replay entre réplicas (`multi-instance.test.ts`) |
+| Não confiar só no SQS FIFO | inbox persistente na mesma transação; mensagens duplicadas com `MessageDeduplicationId` diferente | `wager-consumer.test.ts`; teste de carga (5% de duplicatas, 0 transação duplicada) |
+| Nenhum evento antes do commit | outbox gravada na transação financeira; relay separado, at-least-once com `eventId` estável | `outbox-publisher.test.ts`; `outbox-publishers.test.ts` (T-C06); `crash-recovery.test.ts` (T-C08) |
+| Ledger imutável e auditável | triggers contra `UPDATE`/`DELETE`/`TRUNCATE`; role da aplicação sem esses privilégios; encadeamento `balance_before/after` | `schema-constraints.test.ts` (tenta violar via SQL, inclusive como dono do schema) |
+| Saldo == ledger | constraint trigger diferido no `COMMIT`; reconciliação sob demanda e periódica | `schema-constraints.test.ts`; `assertLedgerConsistency` no fim de todo teste que move dinheiro; `sampled-reconciliation.test.ts` |
+| Sem lock global | lock por linha de wallet; ordem global inbox → wallet → transação | T-C03 (wallets distintas em paralelo, `wagering.test.ts`) |
+| Sem `read → calculate → update` solto | `Wallet.debit/credit` sob lock + `UPDATE … WHERE version = ?` | `repositories.test.ts`; T-C02 |
+| Correto com múltiplas instâncias | estado só no banco; `SKIP LOCKED` nos workers | `multi-instance.test.ts` (3 processos, T-C04); teste de carga com 3 e 6 réplicas |
+| Garantias no schema | constraints, índices únicos e triggers em migrations versionadas e reversíveis | `schema-constraints.test.ts`; `migrations.test.ts` (`up → down → up` também no CI) |
+| Testes com infraestrutura real | PostgreSQL e LocalStack em containers; processos reais com `SIGKILL`/`SIGTERM` | suítes `test/integration` e `test/concurrency`; CI |

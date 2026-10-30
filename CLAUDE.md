@@ -4,11 +4,11 @@ Guia para o Claude Code trabalhar neste repositório.
 
 ## Projeto
 
-Desafio técnico da Jungle Gaming: **Distributed Wagering Processor** — serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`) vindas de provedores por HTTP e SQS, correto sob duplicação, desordem, concorrência e múltiplas instâncias.
+**Distributed Wagering Processor** (Jungle Gaming) — serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`) vindas de provedores por HTTP e SQS, correto sob duplicação, desordem, concorrência e múltiplas instâncias.
 
 Leia antes de mudar algo relevante:
 
-- [Desafio.md](Desafio.md) — enunciado original (fonte da verdade dos requisitos)
+- [Desafio.md](Desafio.md) — especificação original (fonte da verdade dos requisitos; não editar)
 - [docs/OVERVIEW.md](docs/OVERVIEW.md) — requisitos com IDs (`RF-*`, `RN-*`, `R-*`, `T-*`, `D-*`)
 - [docs/BACKLOG.md](docs/BACKLOG.md) — sprints e itens; marque `[x]` ao concluir
 - [ARCHITECTURE.md](ARCHITECTURE.md) — decisões (ADRs), schema, fluxos, contratos HTTP, failure codes
@@ -47,7 +47,7 @@ bun run test:load                    # carga contra o cluster em :8080 (docs/LOA
 
 Profiles do Compose: `app` (3 réplicas + nginx), `observability` (Prometheus, Grafana, Jaeger), `auth` (Keycloak, com `AUTH_MODE=keycloak`), `load` (`loadgen`).
 
-## Regras invioláveis (eliminatórias no desafio)
+## Regras invioláveis (invariantes não negociáveis)
 
 1. **Dinheiro nunca é `number`.** Use `Money` (bigint em centavos). Nada de `parseFloat`, `Number(amount)`, `toFixed` ou aritmética nativa sobre valores monetários. No banco, `numeric(20,2)`.
 2. **Idempotência só no banco.** Nunca use `Map`/cache em memória como garantia.
@@ -83,6 +83,7 @@ infrastructure ┘   (implementa as ports de application)
 ## Convenções
 
 - **Idioma:** código, identificadores, nomes de arquivos e mensagens de commit em inglês; documentação (`*.md`) em português.
+- **Tom da documentação pública:** profissional e direto. Fale de requisitos, invariantes e critérios de qualidade, não de "desafio", "pontos" ou "avaliação". Nada de notas sobre o sistema operacional da máquina de desenvolvimento (isso vai em `CLAUDE.local.md`, fora do git). `Desafio.md` é o enunciado e não muda.
 - Commits no formato Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`).
 - **Commits e PRs sem atribuição ao Claude:** nada de `Co-Authored-By: Claude …`, "Generated with Claude Code" ou qualquer menção ao assistente em mensagens de commit, descrições de PR ou código. O autor é só o dono do repositório.
 - Repositório remoto: https://github.com/RodrigoTorreao/jungle-backend (branch padrão `main`).
@@ -102,21 +103,12 @@ infrastructure ┘   (implementa as ports de application)
 - Crash em pontos exatos via `FaultInjector` (`FAULT_POINTS=...`), nunca via timing.
 - Um bug corrigido ganha um teste que falhava antes.
 
-## Ambiente (Windows)
-
-- Bun roda nativo no Windows (instalado via scoop). **Não há Docker Desktop**: o Docker Engine roda dentro do WSL (distro `Ubuntu`). Comandos de Compose: `wsl -d Ubuntu --cd <pasta do projeto> -- docker compose …`. As portas publicadas ficam acessíveis em `localhost` no Windows.
-- `%USERPROFILE%\.wslconfig` desliga o shutdown por ociosidade (`instanceIdleTimeout=-1`, `vmIdleTimeout=-1`), então os containers ficam de pé. Depois de um reboot ou `wsl --shutdown`, suba de novo o Compose e confirme com `docker compose ps`.
-- Não use `cd` solto no shell da ferramenta (muda o diretório da sessão); prefira caminhos absolutos ou `git -C`.
-- Testes que dependem de sinais POSIX (`SIGTERM`, `SIGKILL`) e de crash de processo devem rodar em container Linux, WSL2 ou CI — não confie no resultado deles rodando nativamente no Windows.
-- `wsl … -- sh -c '…'` chamado pelo PowerShell quebra o comando nas aspas duplas internas: para sequências de comandos no WSL, escreva um script e rode `wsl … -- sh <script>`.
-- Ao editar arquivos com Python no Windows, abra com `newline=''`; senão as quebras viram CRLF e o Biome reprova.
-
 ## Banco e testes de integração
 
 - Roles: `wallet_owner` (dono do schema, roda migrations) e `wallet_app` (runtime: `SELECT/INSERT/UPDATE`, sem `DELETE`/`TRUNCATE`/DDL). Criados em `docker/postgres/init`; grants em `Migration…_bootstrap`.
 - Migrations são SQL escrito à mão (`this.addSql`) registradas em `src/infrastructure/persistence/migrations/index.ts` — não use geração por diff do ORM.
 - Testes de mensageria criam filas próprias com `createTestQueues()` (`test/support/sqs.ts`) e as apagam no `afterAll`; nunca usem as filas fixas do Compose. Consumer e workers são montados direto (`buildConsumer`, `pollOnce()`, `runOnce()`) para ficarem determinísticos; `ManualClock` controla backoff e TTL.
-- Testes multi-processo (`test/support/cluster.ts`): `startInstance` sobe `bun src/main.ts` real numa porta livre e captura os logs JSON; `killInstance` é SIGKILL. `FAULT_MODE=kill` faz a instância se matar no ponto exato. Testes de `SIGTERM` usam `test.skipIf(win32)` e rodam no CI ou via `scripts/test-in-linux.sh`.
+- Testes multi-processo (`test/support/cluster.ts`): `startInstance` sobe `bun src/main.ts` real numa porta livre e captura os logs JSON; `killInstance` é SIGKILL. `FAULT_MODE=kill` faz a instância se matar no ponto exato. Testes de `SIGTERM` são pulados em plataformas sem semântica de sinal POSIX e sempre rodam no CI (Linux).
 - Quedas de dependência: `TcpProxy` (`test/support/tcp-proxy.ts`) na frente do Postgres ou do LocalStack; `stop()`/`start()` simulam a queda real.
 - `patches/kysely@0.29.6.patch` corrige um vazamento de conexão (ADR-014). Não remova; ao atualizar MikroORM/Kysely, reaplique com `bun patch` e rode `test/integration/resilience`.
 - Crash em teste: `new ArmedFaultInjector(['after-commit-before-ack'])` passado ao consumer/publisher ou `connectPersistence(db, { faults })` para `before-commit`. Em modo `throw` o `SimulatedCrashError` deixa o estado de um processo morto; o modo `kill` é para os testes multi-processo.
@@ -127,5 +119,5 @@ infrastructure ┘   (implementa as ports de application)
 1. Pegue o próximo item do [BACKLOG](docs/BACKLOG.md) na ordem dos sprints.
 2. Implemente com testes; rode `typecheck`, `lint` e as suítes afetadas.
 3. Se uma decisão mudou, registre na ARCHITECTURE (nova linha em ADRs ou interpretação).
-4. Achado de spike, mudança de rumo, beco sem saída ou interpretação ambígua do enunciado ⇒ acrescente uma entrada `DL-NNN` no fim do [DECISION_LOG](docs/DECISION_LOG.md): 3 a 5 linhas, só o que não está no ARCHITECTURE nem no git. Nunca reescreva entradas antigas; implementação de rotina não entra.
+4. Achado de spike, mudança de rumo, beco sem saída ou interpretação ambígua da especificação ⇒ acrescente uma entrada `DL-NNN` no fim do [DECISION_LOG](docs/DECISION_LOG.md): 3 a 5 linhas, só o que não está no ARCHITECTURE nem no git. Nunca reescreva entradas antigas; implementação de rotina não entra.
 5. Marque o item como `[x]` no backlog.

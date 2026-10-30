@@ -1,6 +1,6 @@
 # ARCHITECTURE — Distributed Wagering Processor
 
-> **Status:** v0.6. Sprints 0–6 concluídos. Este documento descreve o **desenho alvo**; a tabela abaixo diz o que já está no código. Resultados do spike em §13.1.
+> **Status:** v1.0. Sprints 0–7 concluídos: tudo o que este documento descreve está implementado e testado. Resultados do spike em §13.1.
 
 | Seção | Implementado | Planejado |
 |---|---|---|
@@ -9,11 +9,11 @@
 | §6 Concorrência | lock por wallet, guard de versão, timeouts, classificação por SQLSTATE, retry de transitórios; cenário 100 vs 80+80 via HTTP e via pools; 3 processos reais (T-C04) | — |
 | §7 Idempotência | unicidades no schema, hash canônico, snapshot de replay, replay/conflito por HTTP e SQS, inbox `(consumerName, messageId)` na mesma transação, corrida de chave entre wallets | — |
 | §8 Fluxos | todos: submissão HTTP (§8.1), consumer SQS com DLQ e shutdown (§8.2), outbox publisher com pistas paralelas (§8.3), worker de pendências com nudge (§8.4), wallet, reconciliação sob demanda e periódica por amostragem (§8.5) | — |
-| §9 Contratos HTTP | todos os endpoints do desafio, incluindo `/health/ready` e `/metrics`; mapeamento completo (200/201/202/400/401/403/404/409/422/500/503) | — |
+| §9 Contratos HTTP | todos os endpoints da especificação, incluindo `/health/ready` e `/metrics`; mapeamento completo (200/201/202/400/401/403/404/409/422/500/503); OpenAPI 3.1 gerado dos schemas zod em `/openapi.json` e `/docs`, com teste de contrato | — |
 | §10 Observabilidade | logs JSON com contexto via `AsyncLocalStorage` (`correlationId`, `messageId`, `transactionId`, `walletId`, `providerId`, `traceId`), valores monetários ocultos; catálogo completo de métricas em `/metrics`; `/health/live` e `/health/ready` (503 no shutdown); Prometheus + Grafana com dashboard; traces OpenTelemetry → Jaeger (opt-in) | — |
 | §11 Autenticação | Keycloak (`AUTH_MODE=keycloak`): client credentials por provedor, claim `provider_id`, role `wallet-admin` para backoffice; validação local por JWKS; `AUTH_MODE=disabled` para desenvolvimento e testes | — |
 | §12 Testes | unidade; integração com PostgreSQL e LocalStack reais; quedas de banco e SQS via proxy TCP; concorrência T-C01..T-C08 com processos reais, `SIGKILL` nos pontos de injeção e `SIGTERM` (Linux); carga com relatório ([docs/LOAD_TEST.md](docs/LOAD_TEST.md)) | — |
-> Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Enunciado: [Desafio.md](Desafio.md)
+> Escopo e requisitos: [docs/OVERVIEW.md](docs/OVERVIEW.md) · Plano: [docs/BACKLOG.md](docs/BACKLOG.md) · Especificação: [Desafio.md](Desafio.md)
 > Como chegamos a cada decisão (achados, mudanças de rumo): [docs/DECISION_LOG.md](docs/DECISION_LOG.md)
 
 ## Sumário
@@ -119,7 +119,7 @@ flowchart TB
     GF --> PR
 ```
 
-A mesma imagem (`Dockerfile`) roda todos os papéis; `APP_ROLES` (`api`, `consumer`, `outbox-publisher`, `pending-reference-worker`, `reconciliation-worker`) permite separá-los. `docker compose --profile app up -d --build` sobe `migrate` (roda as migrations e sai), 3 réplicas de `app` com todos os papéis e o `lb` (nginx). O nginx re-resolve o DNS do Docker a cada 5 s e repassa um POST para outra réplica em `502/503` ou erro de conexão, o que é seguro porque toda submissão é idempotente pela `Idempotency-Key`. `stop_grace_period: 30s` é maior que `SHUTDOWN_GRACE_MS` (20 s), então o `SIGTERM` drena antes do `SIGKILL` do Docker.
+A mesma imagem (`Dockerfile`) roda todos os papéis; `APP_ROLES` (`api`, `consumer`, `outbox-publisher`, `pending-reference-worker`, `reconciliation-worker`) permite separá-los. `docker compose up -d --build --wait` sobe PostgreSQL, LocalStack, `migrate` (roda as migrations e sai), 3 réplicas de `app` com todos os papéis e o `lb` (nginx). O nginx re-resolve o DNS do Docker a cada 5 s e repassa um POST para outra réplica em `502/503` ou erro de conexão, o que é seguro porque toda submissão é idempotente pela `Idempotency-Key`. O IP de uma réplica morta não recusa a conexão, ele fica sem resposta; por isso o `proxy_connect_timeout` é de 500 ms, e `worker_connections` comporta rajadas de centenas de requisições simultâneas (DL-028). `stop_grace_period: 30s` é maior que `SHUTDOWN_GRACE_MS` (20 s), então o `SIGTERM` drena antes do `SIGKILL` do Docker.
 
 Profiles opcionais:
 
@@ -630,7 +630,7 @@ sequenceDiagram
 ```
 
 - Falha de publish → `scheduleRetry`: `attempts + 1`, `next_attempt_at = now + min(1s * 2^attempts, 5min)`, sem jitter (backoff determinístico no domínio; publishers concorrentes já se evitam com `SKIP LOCKED`). Nunca descarta: um evento confirmado não se perde (métrica e alerta para `attempts` alto).
-- Cenário do desafio (commit → crash → outra instância publica → duplicata segura) é coberto porque a outbox é gravada na transação financeira e a publicação é at-least-once com `eventId` estável.
+- Cenário da especificação (commit → crash → outra instância publica → duplicata segura) é coberto porque a outbox é gravada na transação financeira e a publicação é at-least-once com `eventId` estável.
 - Ordem: publishers concorrentes podem inverter eventos da mesma wallet. Consumidores ordenam por `walletVersion` (presente em `WalletBalanceChanged`). Ver limitações.
 - Claim em ordem `occurred_at, id`, lote de `OUTBOX_BATCH_SIZE`, `SendMessageBatch` em blocos de 10 com `MessageGroupId = aggregateId` e atributos `eventType`, `eventVersion`, `correlationId`. Falhas parciais do lote viram retry só das mensagens recusadas.
 - **Pistas paralelas** (ADR-016): o lote é dividido em 4 pistas por hash do `aggregateId` e as pistas enviam em paralelo. Todos os eventos de uma wallet vão pela mesma pista e na ordem do claim, então o paralelismo não inverte eventos de uma mesma wallet. Uma falha de envio marca para retry só o restante da sua pista. Publicação e retries de todo o lote são gravados num único `UPDATE` (`jsonb_to_recordset`). Essa mudança saiu do teste de carga: antes, o lag chegava a 31 s com ~1000 eventos/s (DL-023).
@@ -741,13 +741,13 @@ Origem das métricas: `ProcessWagerTransactionUseCase` (resultado, duração, re
 
 **Dashboard** (profile `observability`): o Grafana em `:3001` abre direto no dashboard "Wagering — visão operacional" (`docker/grafana/dashboards/wagering.json`). Ele mostra réplicas no ar, transações/s por tipo, status e origem, latência p50/p95/p99, replays, conflitos de idempotência e duplicatas da inbox, conflitos de lock e retries, backlog e lag da outbox, pendências, DLQ, divergências de reconciliação e memória por réplica.
 
-**Traces** (OpenTelemetry, opt-in com `OTEL_EXPORTER_OTLP_ENDPOINT`; Jaeger em `:16686`): `src/infrastructure/observability/tracing.ts` é o primeiro import do `main.ts` e instrumenta `http` e `pg` (ADR-018). Uma requisição vira `POST` → `ProcessWagerTransaction` → `pg.query` (BEGIN … COMMIT). Uma mensagem vira `wager-transactions.fifo process` → `ProcessWagerTransaction` → `pg.query`. O relay gera `wagering-events.fifo publish`, com os `correlationId` do lote como atributo. Health, `/metrics` e polls ociosos dos workers não geram spans. As linhas de log de uma operação rastreada levam `traceId` e `spanId`. Atributos seguem a regra dos logs: nada de valores ou saldos.
+**Traces** (OpenTelemetry, opt-in com `OTEL_EXPORTER_OTLP_ENDPOINT`; Jaeger em `:16686`): `src/infrastructure/observability/tracing.ts` é o primeiro import do `main.ts` e instrumenta `http` e `pg` (ADR-018). Uma requisição vira `POST` → `ProcessWagerTransaction` → `pg.query` (BEGIN … COMMIT). Uma mensagem vira `wager-transactions.fifo process` → `ProcessWagerTransaction` → `pg.query`. O relay gera `wagering-events.fifo publish`, com os `correlationId` do lote como atributo. Health, `/metrics` e polls ociosos dos workers não geram spans. No Compose, 10% dos traces são amostrados (`parentbased_traceidratio`): exportar todos sob saturação descartava spans e custava 12% do throughput (DL-029). As linhas de log de uma operação rastreada levam `traceId` e `spanId`. Atributos seguem a regra dos logs: nada de valores ou saldos.
 
 ---
 
 ## 11. Autenticação
 
-Vale 0 pontos e foi feita com timebox no Sprint 6, sobre o ponto de extensão que existia desde o Sprint 2.
+Requisito opcional, implementado com escopo limitado no Sprint 6 sobre o ponto de extensão que existia desde o Sprint 2.
 
 - **IdP:** Keycloak 26 no profile `auth`, com o realm `wagering` importado no boot (`docker/keycloak/wagering-realm.json`). Os segredos ali são de desenvolvimento.
 - **Provedores:** um client confidencial por provedor (`provider-a`, `provider-b`), fluxo `client_credentials`. Um mapper fixa a claim `provider_id` e outro põe `wagering-api` na audiência.
@@ -790,9 +790,11 @@ Testes: `jwt-provider-identity.test.ts` (unidade; chaves geradas no teste, JWKS 
 | `test:concurrency` | idem + processos reais | `Promise.all` com pools independentes, `Bun.spawn` de ≥ 3 instâncias, `FaultInjector` para crash em pontos exatos, `waitFor` com timeout em vez de `sleep` |
 | `test:load` | Compose com 3 réplicas atrás do nginx | closed loop com aquecimento; ao final, checagens de correção no banco (saldo = ledger, saldo = respostas confirmadas, uma linha por mensagem). Versão curta no CI. Ver [docs/LOAD_TEST.md](docs/LOAD_TEST.md) |
 
+**Sem configuração:** `docker compose up -d --wait` e `bun test` bastam num clone limpo, sem `.env`. O template migrado é criado no primeiro uso (`ensureTemplate`, com `pg_advisory_lock`), e o harness usa os padrões do Compose e do LocalStack. O CI roda esse caminho além dos scripts. O contrato HTTP tem teste próprio (`openapi.test.ts`): toda rota servida está no OpenAPI e as respostas reais validam contra os schemas declarados.
+
 Todo teste de integração ou concorrência que cria wallets ou move dinheiro termina com `assertLedgerConsistency(databaseUrl, walletIds?)` (`test/support/ledger-consistency.ts`), que verifica, com aritmética em `numeric` no próprio PostgreSQL: `wallet.balance == Σ CREDIT − Σ DEBIT`, último lançamento igual a saldo e versão, e sequência de versões sem buracos. Testes que não tocam em wallets (health, migrations, spike do ORM) não o chamam. A verificação de outbox sem perda (eventos esperados presentes) entra com o publisher, no Sprint 4.
 
-**Crash injection:** `FaultInjector` é uma porta; em produção é no-op. Em teste, `FAULT_POINTS=after-commit-before-ack` faz o processo se matar com `SIGKILL` naquele ponto. Testes de sinal rodam em Linux (container/CI/WSL2).
+**Crash injection:** `FaultInjector` é uma porta; em produção é no-op. Em teste, `FAULT_POINTS=after-commit-before-ack` faz o processo se matar com `SIGKILL` naquele ponto. Testes de sinal rodam em Linux (CI).
 
 ---
 
@@ -800,7 +802,7 @@ Todo teste de integração ou concorrência que cria wallets ou move dinheiro te
 
 | ADR | Decisão | Alternativas | Motivo |
 |---|---|---|---|
-| 001 | **MikroORM 7** com `EntitySchema` + mappers para o domínio (validado no Sprint 0, ver §13.1) | TypeORM; decorators nas classes de domínio | preferencial no desafio; `em.transactional()` e `LockMode` explícitos; `EntitySchema` mantém o domínio sem decorators e permite construtores privados |
+| 001 | **MikroORM 7** com `EntitySchema` + mappers para o domínio (validado no Sprint 0, ver §13.1) | TypeORM; decorators nas classes de domínio | preferencial na especificação; `em.transactional()` e `LockMode` explícitos; `EntitySchema` mantém o domínio sem decorators e permite construtores privados |
 | 002 | `Money` em **`bigint` de centavos** | `decimal.js`, `big.js` | escala fixa 2 → inteiro é exato, nativo, sem dependência; só há soma/subtração |
 | 003 | **Lock pessimista por wallet** (`FOR UPDATE`) + `version` + `CHECK` | só optimistic com retry; update atômico condicionado | hot wallets geram tempestade de retries no optimistic; o update condicionado sozinho não cobre a checagem de idempotência e de reversão única na mesma seção crítica |
 | 004 | **READ COMMITTED** | REPEATABLE READ / SERIALIZABLE | o lock já serializa por wallet; níveis maiores só adicionam falhas de serialização |
@@ -844,7 +846,7 @@ Versões resolvidas: Bun 1.4.4, NestJS 12, MikroORM 7.2, TypeScript 7 (`tsc` nat
 |---|---|---|
 | I-01 | Uma referência admite **no máximo uma reversão efetiva**, independentemente do tipo (`REFUND` ou `ROLLBACK`) | a regra 4 fala "pelo mesmo tipo", mas `REFUND` + `ROLLBACK` sobre a mesma `BET` creditaria duas vezes — viola a invariante de não duplicar créditos. `ROLLBACK` de um `REFUND` continua permitido (é outra referência) |
 | I-02 | `WIN`/`LOSS` com referência informada passam pela mesma validação; referência ausente → `PENDING_REFERENCE` | consistência com `REFUND`/`ROLLBACK` |
-| I-03 | `BET` que chega depois de sua reversão pendente é processada normalmente (sem "tombstone") | segue o fluxo pedido no desafio; o efeito líquido é zero |
+| I-03 | `BET` que chega depois de sua reversão pendente é processada normalmente (sem "tombstone") | segue o fluxo da especificação; o efeito líquido é zero |
 | I-04 | `WALLET_NOT_FOUND` não é persistido (sem agregado a que pertencer): HTTP 422; SQS → DLQ | a DLQ é a trilha de auditoria do que não cabe no domínio |
 | I-05 | `amount` exige escala exata de 2 casas (`"25.00"`, não `"25"`) | o contrato diz "sempre com escala fixa de 2 casas" |
 | I-06 | `LOSS` aceita `0.00`; demais kinds exigem valor > 0 | `LOSS` não move saldo |
