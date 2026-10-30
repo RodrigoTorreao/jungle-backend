@@ -20,7 +20,8 @@
     "test:unit": "bun test ./test/unit",
     "test:integration": "bun test --preload ./test/support/integration-preload.ts ./test/integration",
     "test:concurrency": "bun test --preload ./test/support/integration-preload.ts ./test/concurrency --pass-with-no-tests",
-    "test:load": "bun load/run.ts"
+    "test:load": "bun load/run.ts",
+    "demo": "bun scripts/demo.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1159.0",
@@ -46,6 +47,7 @@
     "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "swagger-ui-dist": "5.17.14",
     "zod": "^4.6.7"
   },
   "devDependencies": {

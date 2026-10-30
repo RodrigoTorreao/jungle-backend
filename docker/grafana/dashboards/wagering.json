@@ -603,8 +603,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (type) (rate(db_lock_conflicts_total[1m]))",
-          "legendFormat": "lock {{type}}"
+          "expr": "sum(rate(db_lock_conflicts_total[1m])) or vector(0)",
+          "legendFormat": "conflitos de lock"
         },
         {
           "refId": "B",
@@ -612,8 +612,17 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (reason) (rate(processing_retries_total[1m]))",
-          "legendFormat": "retry {{reason}}"
+          "expr": "sum(rate(processing_retries_total[1m])) or vector(0)",
+          "legendFormat": "retries transitórios"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (type) (rate(db_lock_conflicts_total[1m]))",
+          "legendFormat": "lock {{type}}"
         }
       ],
       "fieldConfig": {
@@ -637,7 +646,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Zero sob carga: o lock por wallet faz as transações esperarem em fila em vez de falharem"
     },
     {
       "id": 16,

@@ -39,10 +39,9 @@ services:
       timeout: 5s
       retries: 40
 
-  # --- The service itself: `docker compose --profile app up -d --build` ------------------------
+  # --- The service: `docker compose up -d --build --wait` (migrations, 3 replicas, nginx :8080) --
 
   migrate:
-    profiles: [app]
     build: .
     command: ["bun", "scripts/migrate.ts", "up"]
     environment:
@@ -52,7 +51,6 @@ services:
         condition: service_healthy
 
   app:
-    profiles: [app]
     build: .
     deploy:
       replicas: 3
@@ -67,7 +65,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SHUTDOWN_GRACE_MS: "20000"
-      # `AUTH_MODE=keycloak docker compose --profile app --profile auth up` turns tokens on.
+      # `AUTH_MODE=keycloak docker compose --profile auth up` turns tokens on.
       # Tokens say iss=localhost:8180 (how clients reach Keycloak); keys come over the network.
       AUTH_MODE: ${AUTH_MODE:-disabled}
       OIDC_ISSUER: http://localhost:8180/realms/wagering
@@ -75,6 +73,12 @@ services:
       # Tracing is opt-in: OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 (profile observability).
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: wagering
+      # Sample 10% of traces (parent-based: a trace is kept or dropped whole). Tracing every
+      # request at saturation overflowed the span queue (whole HTTP spans lost) and cut the
+      # throughput by a third (DECISION_LOG DL-029). Override for debugging.
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
+      OTEL_BSP_MAX_QUEUE_SIZE: "8192"
     # Longer than SHUTDOWN_GRACE_MS: SIGTERM drains in-flight work before Docker's SIGKILL.
     stop_grace_period: 30s
     depends_on:
@@ -84,7 +88,6 @@ services:
         condition: service_healthy
 
   lb:
-    profiles: [app]
     image: nginx:1.27-alpine
     ports:
       - "8080:8080"
@@ -123,7 +126,7 @@ services:
       retries: 40
       start_period: 20s
 
-  # --- Metrics and dashboard: `--profile observability` (with --profile app) -------------------
+  # --- Metrics, dashboard and traces: `--profile observability` ---------------------------------
 
   prometheus:
     profiles: [observability]

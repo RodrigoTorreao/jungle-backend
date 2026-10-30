@@ -52,7 +52,8 @@
             "introspection.token.claim": "true"
           }
         }
-      ]
+      ],
+      "webOrigins": ["http://localhost:8080", "http://localhost:3000"]
     },
     {
       "clientId": "provider-b",
@@ -93,7 +94,8 @@
             "introspection.token.claim": "true"
           }
         }
-      ]
+      ],
+      "webOrigins": ["http://localhost:8080", "http://localhost:3000"]
     },
     {
       "clientId": "backoffice",
@@ -120,7 +122,8 @@
             "introspection.token.claim": "true"
           }
         }
-      ]
+      ],
+      "webOrigins": ["http://localhost:8080", "http://localhost:3000"]
     }
   ],
   "users": [
