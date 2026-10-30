@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import {
   GetQueueAttributesCommand,
   GetQueueUrlCommand,
+  PurgeQueueCommand,
   SendMessageBatchCommand,
   type SendMessageBatchRequestEntry,
   SQSClient,
@@ -33,6 +34,9 @@ const config = {
   awsEndpoint: env('AWS_ENDPOINT_URL', 'http://localhost:4566'),
   awsRegion: env('AWS_REGION', 'us-east-1'),
   inputQueue: env('SQS_WAGER_TRANSACTIONS_QUEUE', 'wager-transactions.fifo'),
+  eventsQueue: env('SQS_EVENTS_QUEUE', 'wagering-events.fifo'),
+  /** Nothing consumes the events queue here; a backlog of 500k+ slows LocalStack (DL-030). */
+  purgeEvents: env('LOAD_PURGE_EVENTS', 'true') !== 'false',
   scenarios: env('LOAD_SCENARIOS', 'uniform,hot-wallet,sqs-ingestion').split(','),
   durationSeconds: Number(env('LOAD_DURATION_SECONDS', '60')),
   warmupSeconds: Number(env('LOAD_WARMUP_SECONDS', '5')),
@@ -521,6 +525,22 @@ const ready = await fetch(`${config.targetUrl}/health/ready`).catch(() => undefi
 if (ready?.status !== 200) {
   console.error(`${config.targetUrl} is not ready — start the cluster first (docs/LOAD_TEST.md)`);
   process.exit(1);
+}
+
+if (config.purgeEvents) {
+  const sqs = new SQSClient({
+    region: config.awsRegion,
+    endpoint: config.awsEndpoint,
+    useQueueUrlAsEndpoint: false,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
+    },
+  });
+  const { QueueUrl } = await sqs.send(new GetQueueUrlCommand({ QueueName: config.eventsQueue }));
+  await sqs.send(new PurgeQueueCommand({ QueueUrl }));
+  sqs.destroy();
+  console.error(`[load] purged ${config.eventsQueue} (no consumer in this environment)`);
 }
 
 const reports: ScenarioReport[] = [];

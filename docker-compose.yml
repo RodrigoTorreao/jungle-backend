@@ -74,8 +74,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: wagering
       # Sample 10% of traces (parent-based: a trace is kept or dropped whole). Tracing every
-      # request at saturation overflowed the span queue (whole HTTP spans lost) and cut the
-      # throughput by a third (DECISION_LOG DL-029). Override for debugging.
+      # request at saturation overflowed the span queue (whole HTTP spans lost) and cost 12% of
+      # the throughput (DECISION_LOG DL-029). Override for debugging.
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
       OTEL_BSP_MAX_QUEUE_SIZE: "8192"
@@ -155,6 +155,9 @@ services:
   jaeger:
     profiles: [observability]
     image: jaegertracing/jaeger:2.5.0
+    # Traces live in memory: cap them, or a long load run fills the VM (DL-030).
+    command: ["--set=extensions.jaeger_storage.backends.some_storage.memory.max_traces=20000"]
+    mem_limit: 1g
     ports:
       - "16686:16686" # UI
       - "4318:4318" # OTLP/HTTP
