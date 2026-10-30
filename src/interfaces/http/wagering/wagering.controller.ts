@@ -10,7 +10,7 @@ import { processWagerTraced } from '../../traced-wager-processing';
 import { type AuthenticatedRequest, principalOf } from '../auth/auth.guard';
 import { correlationIdOf, parseRequest, UuidParam } from '../request';
 
-const IdempotencyKeyHeader = identifier(256);
+export const IdempotencyKeyHeader = identifier(256);
 
 /**
  * Each persisted outcome has its own status, so a provider decides from the status alone:

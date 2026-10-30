@@ -10,9 +10,11 @@ import type { LedgerPageView, ReconciliationView, WalletView } from '../../../ap
 import { type AuthenticatedRequest, principalOf } from '../auth/auth.guard';
 import { correlationIdOf, MoneyBody, parseRequest, UuidParam } from '../request';
 
-const CreateWalletBody = z.object({ playerId: z.uuid(), initialBalance: MoneyBody }).strict();
+export const CreateWalletBody = z
+  .object({ playerId: z.uuid(), initialBalance: MoneyBody })
+  .strict();
 
-const LedgerQueryParams = z.object({
+export const LedgerQueryParams = z.object({
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
