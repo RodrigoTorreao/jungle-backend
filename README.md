@@ -22,7 +22,7 @@ Serviço financeiro que processa operações de apostas (`BET`, `WIN`, `LOSS`, `
 | 🔒 **Concorrência por wallet** | `SELECT … FOR UPDATE` na linha da wallet, guarda de versão e ordem global de locks (sem deadlock, sem lock global). Hot wallet com 32 requisições simultâneas: **zero** lock timeouts |
 | 📬 **Mensageria at-least-once correta** | inbox e outbox na mesma transação SQL do efeito financeiro; relay com `FOR UPDATE SKIP LOCKED` e envio paralelo que preserva a ordem por wallet; DLQ, backoff, referências fora de ordem resolvidas por worker |
 | 💥 **Provado com processos reais** | 3 instâncias disputando as mesmas wallets; `SIGKILL` em pontos exatos (antes do commit, entre commit e ack, entre publicar e marcar); `SIGTERM` drenando o trabalho em andamento; quedas de PostgreSQL e SQS simuladas por proxy TCP |
-| 📈 **Carga com análise honesta** | ~500 tx/s em 3 réplicas com **zero divergências**; o teste achou um gargalo real na outbox (lag de 31 s) que foi corrigido (< 3 s). [Relatório](docs/LOAD_TEST.md) |
+| 📈 **Teste de carga** | ~500 tx/s em 3 réplicas com **zero divergências**; o teste achou um gargalo real na outbox (lag de 31 s) que foi corrigido (< 3 s). [Relatório](docs/LOAD_TEST.md) |
 | 🔭 **Operável** | logs JSON com contexto e sem valores monetários, métricas Prometheus, dashboard Grafana, traces OpenTelemetry → Jaeger, readiness que sai do balanceador no shutdown |
 | 🔐 **Autenticação com IdP real** | Keycloak (OIDC client credentials), validação local por JWKS, provedor só age por si mesmo, papel de backoffice para operações administrativas |
 

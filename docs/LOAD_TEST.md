@@ -1,6 +1,6 @@
 # Teste de carga
 
-> Requisito opcional D-01: `bun run test:load`, com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos de concorrência e outbox lag. Não há meta de RPS: o objetivo é um experimento reproduzível e uma análise honesta do que limita o sistema.
+> Requisito opcional D-01: `bun run test:load`, com ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos de concorrência e outbox lag. Não há meta de RPS: o objetivo é um experimento reproduzível e entender o que limita o sistema.
 
 ## Resumo
 
